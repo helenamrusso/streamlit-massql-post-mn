@@ -9,7 +9,7 @@ import glob
 st.title("Validation of matches from the GNPS-BILE-ACID-MODIFICATIONS library using MassQL")
 
 # Input task ID
-task_id = st.text_input("Enter GNPS Task ID", value='128b9aacccb84fa4aad18ee61308d02e')
+task_id = st.text_input("Enter GNPS2 Task ID", placeholder='Enter a GNPS2 task ID')
 
 if st.button("Run Analysis"):
     with st.spinner("Downloading and filtering MGF file..."):
