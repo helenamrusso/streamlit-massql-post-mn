@@ -10,7 +10,7 @@ import glob
 st.title("Post Molecular Networking MassQL")
 
 # Input task ID
-task_id = st.text_input("Enter GNPS2 Task ID", placeholder='Enter a GNPS2 task ID', value='128b9aacccb84fa4aad18ee61308d02e')
+task_id = st.text_input("Enter GNPS2 Task ID", placeholder='Enter a GNPS2 task ID')
 
 # Use selectbox to choose bile acid stage type
 defined_query_mode = st.selectbox(
