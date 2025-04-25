@@ -13,10 +13,9 @@ page_title = "Post MN MassQL"
 st.set_page_config(page_title=page_title, page_icon=":flashlight:", layout="wide")
 
 citations = {
-    "MassQL": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
+    "MassQL and Compendium queries": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
     "Bile acid queries": """Mohanty, I., Mannochio-Russo, H., Schweer, J.V., et al. (2024). The underappreciated diversity of bile acid modifications. Cell, 187(7), 1801–1818.e20. https://doi.org/10.1016/j.cell.2024.02.019""",
-    "N-acyl lipds queries": """Mannochio-Russo, H., Charron-Lamoureux, V., van Faassen, M., et al. (2024). The microbiome diversifies N-acyl lipid pools – including short-chain fatty acid-derived compounds. bioRxiv. https://doi.org/10.1101/2024.10.31.621412""",
-    "Compendium queries": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
+    "N-acyl lipids queries": """Mannochio-Russo, H., Charron-Lamoureux, V., van Faassen, M., et al. (2024). The microbiome diversifies N-acyl lipid pools – including short-chain fatty acid-derived compounds. bioRxiv. https://doi.org/10.1101/2024.10.31.621412""",
 }
 
 st.title("Post Molecular Networking MassQL")
@@ -29,65 +28,46 @@ task_id = st.text_input(
     value=query_params.get("task_id", [""])[0],
 )
 
-# # Use selectbox to choose bile acid stage type
+# Flatten only the Compendium queries
+flat_query_list = []
+flattened_queries = {"Manual entry": {"query1": ""}}
+for category, query_dict in ALL_QUERIES.items():
+    if "Compendium" in category:
+        for name, query in query_dict.items():
+            label = f"{name}"
+            flattened_queries[label] = {label: query}
+    else:
+        flattened_queries[category] = query_dict
+
+# Use selectbox to choose query or group
 defined_query_mode = st.selectbox(
-    "Select query mode",
-    ["Manual entry"] + list(ALL_QUERIES.keys()),
-    index=1,
+    "Select query or group",
+    list(flattened_queries.keys()),
+    index=0,
 )
 
-# Default editable table for manual entry
-custom_queries_df = pd.DataFrame([
-    {"name": "query1", "query": ""},
-])
+# Editable table for selected query
+selected_query_dict = flattened_queries[defined_query_mode]
+editable_df = pd.DataFrame(
+    [
+        {"name": name, "query": query}
+        for name, query in selected_query_dict.items()
+    ]
+)
 
-# Inicializar ALL_MASSQL_QUERIES antes de seu uso
-ALL_MASSQL_QUERIES = {k: v for k,v in ALL_QUERIES.items()}
-ALL_MASSQL_QUERIES["Manual entry"] = {"name": "query1", "query": ""}
-
-# Inicializar DataFrame para edição
-if defined_query_mode == "Manual entry":
-    st.markdown("### Custom MassQL Queries (table format)")
-    st.markdown("Fill in the **name** and the corresponding **MassQL query** below:")
-    editable_df = custom_queries_df
-else:
-    st.markdown(f"### Predefined Queries for: {defined_query_mode}")
-    predefined_queries = ALL_MASSQL_QUERIES.get(defined_query_mode, {})
-    editable_df = pd.DataFrame(
-        [
-            {"name": query_name, "query": query}
-            for query_name, query in predefined_queries.items()
-        ]
-    )
-
-# Exibir editor de tabela
+st.markdown("### Query Editor")
+st.markdown("Edit the selected MassQL query or enter a new one below:")
 edited_df = st.data_editor(editable_df, num_rows="dynamic", use_container_width=True)
 
-# Atualizar consultas personalizadas com base nas edições
-custom_queries = {
-    row["name"]: row["query"]
-    for _, row in edited_df.iterrows()
-    if row["name"] and row["query"]
-}
+# Update custom queries
+def get_custom_queries(df):
+    return {
+        row["name"]: row["query"]
+        for _, row in df.iterrows()
+        if row["name"] and row["query"]
+    }
 
-# Detectar modificações em consultas predefinidas
-queries_modified = False
-if defined_query_mode != "Manual entry":
-    for _, row in edited_df.iterrows():
-        original_query = predefined_queries.get(row["name"], "")
-        if row["query"] != original_query:
-            queries_modified = True
-            break
-
-    # Atualizar modo para "Manual entry" se houver modificações
-    if queries_modified:
-        st.warning("Queries modified. Updating dropdown menu to 'Manual entry'.")
-        defined_query_mode = "Manual entry"
-
-# Atualizar conjunto de consultas a ser usado
-ALL_MASSQL_QUERIES["Manual entry"] = custom_queries
-selected_query = ALL_MASSQL_QUERIES[defined_query_mode]
-
+custom_queries = get_custom_queries(edited_df)
 
 @st.cache_data()
 def download_and_filter_mgf(task_id:str) -> (str, str):
@@ -111,7 +91,6 @@ def download_and_filter_mgf(task_id:str) -> (str, str):
             current_scan = [line]  # Start a new scan block
         elif line.startswith("END IONS"):
             current_scan.append(line)
-            # Check if the scan contains valid peak data (lines with two numeric values separated by whitespace)
             if any(
                     len(peak.split()) == 2
                     and all(part.replace(".", "", 1).isdigit() for part in peak.split())
@@ -147,17 +126,14 @@ if st.button("Run Analysis"):
             sep="\t",
         )
         cleaned_mgf_path, all_scans = download_and_filter_mgf(task_id)
-
-        # Update the path to use the cleaned MGF file
         mgf_path = cleaned_mgf_path
 
-    with st.spinner(
-            "Running MassQL queries...\nThis may take a while, please be patient!"
-    ):
+    with st.spinner("Running MassQL queries... This may take a while, please be patient!"):
         out_df = []
         container = st.empty()
-        for query_name, input_query in selected_query.items():
-            with container: st.write(f"Running query: {query_name}")
+        for query_name, input_query in custom_queries.items():
+            with container:
+                st.write(f"Running query: {query_name}")
             executed_queries.append(f"{query_name}: {input_query}")
             try:
                 results_df = msql_engine.process_query(input_query, mgf_path)
@@ -171,33 +147,23 @@ if st.button("Run Analysis"):
                 passed_scan_ls = [int(x) for x in passed_scan_ls]
                 out_df.append({"query": query_name, "scan_list": passed_scan_ls})
 
-
         out_df = pd.DataFrame(out_df)
         out_df["scan_list"] = out_df["scan_list"].replace("NA", "[]")
-        out_df["scan_list"] = out_df["scan_list"].apply(
-            lambda x: ast.literal_eval(x) if isinstance(x, str) else x
-        )
+        out_df["scan_list"] = out_df["scan_list"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
         out_df = out_df.explode("scan_list")
-        out_df = out_df.rename(
-            columns={"scan_list": "#Scan#", "query": "query_validation"}
-        )
+        out_df = out_df.rename(columns={"scan_list": "#Scan#", "query": "query_validation"})
 
     with st.spinner("Merging and displaying results..."):
         out_df["#Scan#"] = out_df["#Scan#"].astype(str)
         library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
 
-        # Allow multiple queries to be associated with the same scan
         library_final = pd.merge(library_matches, out_df, on="#Scan#", how="left")
 
-        # Dynamically generate fallback_label based on the selected query mode
         fallback_label = f"Did not pass any query from {defined_query_mode}"
 
-        library_final["query_validation"] = library_final["query_validation"].fillna(
-            fallback_label
-        )
+        library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
 
-        library_final = library_final[
-            ['query_validation'] + [col for col in library_final.columns if col != 'query_validation']]
+        library_final = library_final[["query_validation"] + [col for col in library_final.columns if col != "query_validation"]]
 
         library_final = library_final.groupby("#Scan#", as_index=False).agg(
             {
