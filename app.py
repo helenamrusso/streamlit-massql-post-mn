@@ -29,7 +29,6 @@ task_id = st.text_input(
 )
 
 # Flatten only the Compendium queries
-flat_query_list = []
 flattened_queries = {"Manual entry": {"query1": ""}}
 for category, query_dict in ALL_QUERIES.items():
     if "Compendium" in category:
@@ -39,15 +38,18 @@ for category, query_dict in ALL_QUERIES.items():
     else:
         flattened_queries[category] = query_dict
 
-# Use selectbox to choose query or group
-defined_query_mode = st.selectbox(
-    "Select query or group",
-    list(flattened_queries.keys()),
-    index=0,
+# Multiselect to choose one or more queries or groups
+defined_query_modes = st.multiselect(
+    "Select one or more queries or groups",
+    list(flattened_queries.keys())
 )
 
-# Editable table for selected query
-selected_query_dict = flattened_queries[defined_query_mode]
+# Combine selected queries
+selected_query_dict = {}
+for mode in defined_query_modes:
+    selected_query_dict.update(flattened_queries[mode])
+
+# Editable table for selected queries
 editable_df = pd.DataFrame(
     [
         {"name": name, "query": query}
@@ -79,7 +81,6 @@ def download_and_filter_mgf(task_id:str) -> (str, str):
         fout.write(response.content)
     ## Extract all scan numbers from the MGF file
     scan_list = []
-    valid_scans = []
     with open(mgf_file_path, "r") as mgf_file:
         lines = mgf_file.readlines()
     cleaned_mgf_lines = []
@@ -158,9 +159,7 @@ if st.button("Run Analysis"):
         library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
 
         library_final = pd.merge(library_matches, out_df, on="#Scan#", how="left")
-
-        fallback_label = f"Did not pass any query from {defined_query_mode}"
-
+        fallback_label = "Did not pass any selected query"
         library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
 
         library_final = library_final[["query_validation"] + [col for col in library_final.columns if col != "query_validation"]]
