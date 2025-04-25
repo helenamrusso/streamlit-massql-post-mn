@@ -10,7 +10,7 @@ from massql import msql_engine
 from queries import *
 
 page_title = "Post MN MassQL"
-st.set_page_config(page_title=page_title, page_icon=":flashlight:", layout="wide")
+st.set_page_config(page_title=page_title, page_icon=":flashlight:")
 
 citations = {
     "MassQL and Compendium queries": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
@@ -20,12 +20,12 @@ citations = {
 
 st.title("Post Molecular Networking MassQL")
 
-query_params = st.experimental_get_query_params()
+query_params = st.query_params
 # Input task ID
 task_id = st.text_input(
     "Enter GNPS2 Task ID",
     placeholder="Enter a GNPS2 task ID",
-    value=query_params.get("task_id", [""])[0],
+    value=query_params.get("task_id", ""),
 )
 
 # Flatten only the Compendium queries
