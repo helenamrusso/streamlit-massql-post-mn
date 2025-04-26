@@ -1,6 +1,8 @@
 import ast
 import glob
 import os
+import urllib.parse
+import uuid
 
 import pandas as pd
 import requests
@@ -38,10 +40,18 @@ for category, query_dict in ALL_QUERIES.items():
     else:
         flattened_queries[category] = query_dict
 
+# Generate link to email template (add a predefined query)
+with open("email_template.txt", "r") as file:
+    email_template = file.read()
+
+subject = urllib.parse.quote("Compendium query addition")
+body = urllib.parse.quote(email_template, safe="")
+link = f"mailto:hmannochiorusso@health.ucsd.edu?subject={subject}&body={body}"
+
 # Multiselect to choose one or more queries or groups
 defined_query_modes = st.multiselect(
-    "Select one or more queries or groups",
-    list(flattened_queries.keys())
+    f"Select one or more queries or groups ([add a predefined query]({link}))",
+    list(flattened_queries.keys()),
 )
 
 # Combine selected queries
@@ -51,32 +61,36 @@ for mode in defined_query_modes:
 
 # Editable table for selected queries
 editable_df = pd.DataFrame(
-    [
-        {"name": name, "query": query}
-        for name, query in selected_query_dict.items()
-    ]
+    [{"name": name, "query": query} for name, query in selected_query_dict.items()]
 )
 
-st.markdown("### Query Editor")
-st.markdown("Edit the selected MassQL query or enter a new one below:")
-edited_df = st.data_editor(editable_df, num_rows="dynamic", use_container_width=True)
+run_button = None
+if selected_query_dict:
+    st.markdown("### Query Editor")
+    st.markdown("Edit the selected MassQL query or enter a new one below:")
+    edited_df = st.data_editor(
+        editable_df, num_rows="dynamic", use_container_width=True
+    )
+    run_button = st.button("Run Analysis")
 
-# Update custom queries
-def get_custom_queries(df):
-    return {
-        row["name"]: row["query"]
-        for _, row in df.iterrows()
-        if row["name"] and row["query"]
-    }
+    # Update custom queries
+    def get_custom_queries(df):
+        return {
+            row["name"]: row["query"]
+            for _, row in df.iterrows()
+            if row["name"] and row["query"]
+        }
 
-custom_queries = get_custom_queries(edited_df)
+    custom_queries = get_custom_queries(edited_df)
+
 
 @st.cache_data()
-def download_and_filter_mgf(task_id:str) -> (str, str):
+def download_and_filter_mgf(task_id: str) -> (str, str):
     mgf_url = f"https://gnps2.org/result?task={task_id}&viewname=specms&resultdisplay_type=task"
     response = requests.get(mgf_url)
     os.makedirs("temp_mgf", exist_ok=True)
-    mgf_file_path = "temp_mgf/mgf_all.mgf"
+    unique_uuid = str(uuid.uuid4())
+    mgf_file_path = f"temp_mgf/{unique_uuid}_mgf_all.mgf"
     with open(mgf_file_path, "wb") as fout:
         fout.write(response.content)
     ## Extract all scan numbers from the MGF file
@@ -93,9 +107,9 @@ def download_and_filter_mgf(task_id:str) -> (str, str):
         elif line.startswith("END IONS"):
             current_scan.append(line)
             if any(
-                    len(peak.split()) == 2
-                    and all(part.replace(".", "", 1).isdigit() for part in peak.split())
-                    for peak in current_scan
+                len(peak.split()) == 2
+                and all(part.replace(".", "", 1).isdigit() for part in peak.split())
+                for peak in current_scan
             ):
                 cleaned_mgf_lines.extend(current_scan)
             inside_scan = False
@@ -104,7 +118,7 @@ def download_and_filter_mgf(task_id:str) -> (str, str):
         else:
             cleaned_mgf_lines.append(line)
     # Save the cleaned MGF file
-    cleaned_mgf = "temp_mgf/mgf_cleaned.mgf"
+    cleaned_mgf = f"temp_mgf/{unique_uuid}_mgf_cleaned.mgf"
     with open(cleaned_mgf, "w") as fout:
         fout.writelines(cleaned_mgf_lines)
 
@@ -117,7 +131,7 @@ def download_and_filter_mgf(task_id:str) -> (str, str):
     return cleaned_mgf, scan_list
 
 
-if st.button("Run Analysis"):
+if run_button:
     # Initialize a list to store the queries that were run
     executed_queries = []
 
@@ -129,30 +143,37 @@ if st.button("Run Analysis"):
         cleaned_mgf_path, all_scans = download_and_filter_mgf(task_id)
         mgf_path = cleaned_mgf_path
 
-    with st.spinner("Running MassQL queries... This may take a while, please be patient!"):
+    with st.spinner(
+        "Running MassQL queries... This may take a while, please be patient!"
+    ):
         out_df = []
         container = st.empty()
         for query_name, input_query in custom_queries.items():
             with container:
                 st.write(f"Running query: {query_name}")
-            executed_queries.append(f"{query_name}: {input_query}")
-            try:
-                results_df = msql_engine.process_query(input_query, mgf_path)
-            except KeyError:
-                results_df = pd.DataFrame()
+                executed_queries.append(f"{query_name}: {input_query}")
+                try:
+                    results_df = msql_engine.process_query(input_query, mgf_path)
+                except KeyError:
+                    results_df = pd.DataFrame()
 
-            if len(results_df) == 0:
-                out_df.append({"query": query_name, "scan_list": "NA"})
-            else:
-                passed_scan_ls = results_df["scan"].values.tolist()
-                passed_scan_ls = [int(x) for x in passed_scan_ls]
-                out_df.append({"query": query_name, "scan_list": passed_scan_ls})
+                if len(results_df) == 0:
+                    out_df.append({"query": query_name, "scan_list": "NA"})
+                else:
+                    passed_scan_ls = results_df["scan"].values.tolist()
+                    passed_scan_ls = [int(x) for x in passed_scan_ls]
+                    out_df.append({"query": query_name, "scan_list": passed_scan_ls})
+                container.empty()
 
         out_df = pd.DataFrame(out_df)
         out_df["scan_list"] = out_df["scan_list"].replace("NA", "[]")
-        out_df["scan_list"] = out_df["scan_list"].apply(lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+        out_df["scan_list"] = out_df["scan_list"].apply(
+            lambda x: ast.literal_eval(x) if isinstance(x, str) else x
+        )
         out_df = out_df.explode("scan_list")
-        out_df = out_df.rename(columns={"scan_list": "#Scan#", "query": "query_validation"})
+        out_df = out_df.rename(
+            columns={"scan_list": "#Scan#", "query": "query_validation"}
+        )
 
     with st.spinner("Merging and displaying results..."):
         out_df["#Scan#"] = out_df["#Scan#"].astype(str)
@@ -160,9 +181,14 @@ if st.button("Run Analysis"):
 
         library_final = pd.merge(library_matches, out_df, on="#Scan#", how="left")
         fallback_label = "Did not pass any selected query"
-        library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
+        library_final["query_validation"] = library_final["query_validation"].fillna(
+            fallback_label
+        )
 
-        library_final = library_final[["query_validation"] + [col for col in library_final.columns if col != "query_validation"]]
+        library_final = library_final[
+            ["query_validation"]
+            + [col for col in library_final.columns if col != "query_validation"]
+        ]
 
         library_final = library_final.groupby("#Scan#", as_index=False).agg(
             {
@@ -175,8 +201,22 @@ if st.button("Run Analysis"):
             }
         )
 
-        st.success("Analysis complete!")
-        tab1, tab2, tab3, tab4 = st.tabs(["Library Matches", "Full Table", "Executed Queries", "Citations"])
+        feather_files = glob.glob("temp_mgf/*.feather")
+        for file in feather_files:
+            try:
+                os.remove(file)
+            except Exception as e:
+                st.warning(f"Could not delete {file}: {e}")
+
+        st.success("Analysis complete!", icon="✅")
+        tab1, tab2, tab3, tab4 = st.tabs(
+            [
+                "📚 Library Matches",
+                "📋 Full Table",
+                "🛠️ Executed Queries",
+                "📖 Citations",
+            ]
+        )
 
         with tab1:
             st.markdown("## Table With Library Matches Only")
@@ -184,29 +224,37 @@ if st.button("Run Analysis"):
 
             # Summary for library table
             st.markdown("#### Summary for Library Table")
-            total_library_matches = library_final['#Scan#'].nunique()
-            st.write(f"Total number of scans that matched with the library: {total_library_matches}")
-            query_summary_library = library_final.groupby('query_validation')['#Scan#'].nunique()
+            total_library_matches = library_final["#Scan#"].nunique()
+            st.write(
+                f"Total number of scans that matched with the library: {total_library_matches}"
+            )
+            query_summary_library = library_final.groupby("query_validation")[
+                "#Scan#"
+            ].nunique()
             st.write("Number of scans that matched each query:")
             st.dataframe(query_summary_library)
 
             st.download_button(
                 label="Download Results TSV",
-                data=library_final.to_csv(sep='\t', index=False).encode('utf-8'),
-                file_name='library_final.tsv',
-                mime='text/tab-separated-values'
+                data=library_final.to_csv(sep="\t", index=False).encode("utf-8"),
+                file_name="library_final.tsv",
+                mime="text/tab-separated-values",
             )
 
         with tab2:
             # Create a full table with all scans
-            all_scans_df = pd.DataFrame({'#Scan#': all_scans})
-            all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
+            all_scans_df = pd.DataFrame({"#Scan#": all_scans})
+            all_scans_df["#Scan#"] = all_scans_df["#Scan#"].astype(str)
 
-            full_table = pd.merge(all_scans_df, library_final, on='#Scan#', how='left')
-            full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
+            full_table = pd.merge(all_scans_df, library_final, on="#Scan#", how="left")
+            full_table["query_validation"] = full_table["query_validation"].fillna(
+                fallback_label
+            )
 
             # Allow multiple queries per scan in the full table
-            full_table = full_table.groupby(['#Scan#', 'query_validation'], as_index=False).first()
+            full_table = full_table.groupby(
+                ["#Scan#", "query_validation"], as_index=False
+            ).first()
             st.markdown("## Full Table With All Scans")
             st.dataframe(full_table)
 
@@ -214,7 +262,9 @@ if st.button("Run Analysis"):
             st.markdown("#### Summary for Full Table")
             total_full_matches = full_table["#Scan#"].nunique()
             st.write(f"Total number of scans in the full table: {total_full_matches}")
-            query_summary_full = full_table.groupby("query_validation")["#Scan#"].nunique()
+            query_summary_full = full_table.groupby("query_validation")[
+                "#Scan#"
+            ].nunique()
             st.write("Number of scans that matched each query in the full table:")
             st.dataframe(query_summary_full)
 
@@ -228,14 +278,18 @@ if st.button("Run Analysis"):
         with tab3:
             # Display the executed queries at the end
             st.markdown("## Executed Queries")
-            st.text_area("All queries:", value="\n\n".join(executed_queries), height=300)
-
-            feather_files = glob.glob("temp_mgf/*.feather")
-            for file in feather_files:
-                try:
-                    os.remove(file)
-                except Exception as e:
-                    st.warning(f"Could not delete {file}: {e}")
+            st.text_area(
+                "All queries:", value="\n\n".join(executed_queries), height=300
+            )
+            queries_tsv = [
+                f"{e}\t{f}" for e, f in [i.split(":", 1) for i in executed_queries]
+            ]
+            st.download_button(
+                "Download as TSV",
+                "\n".join(queries_tsv),
+                file_name="executed_queries.tsv",
+                mime="text/tab-separated-values",
+            )
 
         with tab4:
             # Display citations
