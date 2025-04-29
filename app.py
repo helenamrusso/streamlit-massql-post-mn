@@ -8,6 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from massql import msql_engine
+import base64
 
 from queries import *
 
@@ -73,6 +74,7 @@ if selected_query_dict:
     )
     run_button = st.button("Run Analysis")
 
+
     # Update custom queries
     def get_custom_queries(df):
         return {
@@ -80,6 +82,7 @@ if selected_query_dict:
             for _, row in df.iterrows()
             if row["name"] and row["query"]
         }
+
 
     custom_queries = get_custom_queries(edited_df)
 
@@ -107,9 +110,9 @@ def download_and_filter_mgf(task_id: str) -> (str, str):
         elif line.startswith("END IONS"):
             current_scan.append(line)
             if any(
-                len(peak.split()) == 2
-                and all(part.replace(".", "", 1).isdigit() for part in peak.split())
-                for peak in current_scan
+                    len(peak.split()) == 2
+                    and all(part.replace(".", "", 1).isdigit() for part in peak.split())
+                    for peak in current_scan
             ):
                 cleaned_mgf_lines.extend(current_scan)
             inside_scan = False
@@ -123,7 +126,7 @@ def download_and_filter_mgf(task_id: str) -> (str, str):
         fout.writelines(cleaned_mgf_lines)
 
     # Extract all scan numbers from the cleaned MGF file
-    with open(mgf_file_path, "r") as mgf_file:
+    with open(cleaned_mgf, "r") as mgf_file:
         for line in mgf_file:
             if line.startswith("SCANS="):
                 scan_list.append(line.strip().split("=")[1])
@@ -143,10 +146,8 @@ if run_button:
         cleaned_mgf_path, all_scans = download_and_filter_mgf(task_id)
         mgf_path = cleaned_mgf_path
 
-    with st.spinner(
-        "Running MassQL queries... This may take a while, please be patient!"
-    ):
-        out_df = []
+    with st.spinner("Running MassQL queries... This may take a while, please be patient!"):
+        all_query_results_df = []
         container = st.empty()
         for query_name, input_query in custom_queries.items():
             with container:
@@ -157,38 +158,31 @@ if run_button:
                 except KeyError:
                     results_df = pd.DataFrame()
 
-                if len(results_df) == 0:
-                    out_df.append({"query": query_name, "scan_list": "NA"})
-                else:
-                    passed_scan_ls = results_df["scan"].values.tolist()
-                    passed_scan_ls = [int(x) for x in passed_scan_ls]
-                    out_df.append({"query": query_name, "scan_list": passed_scan_ls})
-                container.empty()
+            if len(results_df) == 0:
+                all_query_results_df.append({"query": query_name, "scan_list": "NA"})
+            else:
+                passed_scan_ls = results_df["scan"].values.tolist()
+                passed_scan_ls = [int(x) for x in passed_scan_ls]
+                all_query_results_df.append({"query": query_name, "scan_list": passed_scan_ls})
 
-        out_df = pd.DataFrame(out_df)
-        out_df["scan_list"] = out_df["scan_list"].replace("NA", "[]")
-        out_df["scan_list"] = out_df["scan_list"].apply(
-            lambda x: ast.literal_eval(x) if isinstance(x, str) else x
-        )
-        out_df = out_df.explode("scan_list")
-        out_df = out_df.rename(
-            columns={"scan_list": "#Scan#", "query": "query_validation"}
-        )
+        all_query_results_df = pd.DataFrame(all_query_results_df)
+        all_query_results_df["scan_list"] = all_query_results_df["scan_list"].replace("NA", "[]")
+        all_query_results_df["scan_list"] = all_query_results_df["scan_list"].apply(
+            lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+        all_query_results_df = all_query_results_df.explode("scan_list")
+        all_query_results_df = all_query_results_df.rename(columns={"scan_list": "#Scan#", "query": "query_validation"})
 
     with st.spinner("Merging and displaying results..."):
-        out_df["#Scan#"] = out_df["#Scan#"].astype(str)
+        all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].astype(str)
         library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
 
-        library_final = pd.merge(library_matches, out_df, on="#Scan#", how="left")
+        library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
         fallback_label = "Did not pass any selected query"
-        library_final["query_validation"] = library_final["query_validation"].fillna(
-            fallback_label
-        )
+        library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
 
-        library_final = library_final[
-            ["query_validation"]
-            + [col for col in library_final.columns if col != "query_validation"]
-        ]
+        library_final = library_final[["query_validation", "Compound_Name"] + [col for col in library_final.columns if
+                                                                               col not in ["query_validation",
+                                                                                           "Compound_Name"]]]
 
         library_final = library_final.groupby("#Scan#", as_index=False).agg(
             {
@@ -222,41 +216,40 @@ if run_button:
             st.markdown("## Table With Library Matches Only")
             st.dataframe(library_final)
 
+            library_download = library_final.to_csv(sep='\t', index=False)
+            b64 = base64.b64encode(library_download.encode()).decode()
+            href = f'<a href="data:file/csv;base64,{b64}" download="library_matches.tsv">Download TSV table</a>'
+            st.markdown(href, unsafe_allow_html=True)
+
             # Summary for library table
             st.markdown("#### Summary for Library Table")
-            total_library_matches = library_final["#Scan#"].nunique()
-            st.write(
-                f"Total number of scans that matched with the library: {total_library_matches}"
-            )
-            query_summary_library = library_final.groupby("query_validation")[
-                "#Scan#"
-            ].nunique()
+            total_library_matches = library_final['#Scan#'].nunique()
+            st.write(f"Total number of scans that matched with the library: {total_library_matches}")
+            query_summary_library = library_final.groupby('query_validation')['#Scan#'].nunique()
+
             st.write("Number of scans that matched each query:")
             st.dataframe(query_summary_library)
 
-            st.download_button(
-                label="Download Results TSV",
-                data=library_final.to_csv(sep="\t", index=False).encode("utf-8"),
-                file_name="library_final.tsv",
-                mime="text/tab-separated-values",
-            )
-
         with tab2:
             # Create a full table with all scans
-            all_scans_df = pd.DataFrame({"#Scan#": all_scans})
-            all_scans_df["#Scan#"] = all_scans_df["#Scan#"].astype(str)
+            all_scans_df = pd.DataFrame({'#Scan#': all_scans})
+            all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
 
-            full_table = pd.merge(all_scans_df, library_final, on="#Scan#", how="left")
-            full_table["query_validation"] = full_table["query_validation"].fillna(
-                fallback_label
-            )
+            full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
+            full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
+            full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
 
             # Allow multiple queries per scan in the full table
-            full_table = full_table.groupby(
-                ["#Scan#", "query_validation"], as_index=False
-            ).first()
+            full_table = full_table.groupby(['#Scan#', 'query_validation'], as_index=False).first()
+            col_order = ['#Scan#', 'query_validation', 'Compound_Name']
+            full_table = full_table[col_order + [col for col in full_table.columns if col not in col_order]]
             st.markdown("## Full Table With All Scans")
             st.dataframe(full_table)
+
+            full_download = full_table.to_csv(sep='\t', index=False)
+            b64 = base64.b64encode(full_download.encode()).decode()
+            href = f'<a href="data:file/csv;base64,{b64}" download="full_table.tsv">Download TSV table</a>'
+            st.markdown(href, unsafe_allow_html=True)
 
             # Summary for full table
             st.markdown("#### Summary for Full Table")
@@ -265,15 +258,10 @@ if run_button:
             query_summary_full = full_table.groupby("query_validation")[
                 "#Scan#"
             ].nunique()
+
             st.write("Number of scans that matched each query in the full table:")
             st.dataframe(query_summary_full)
 
-            st.download_button(
-                label="Download Full Table TSV",
-                data=full_table.to_csv(sep="\t", index=False).encode("utf-8"),
-                file_name="full_table.tsv",
-                mime="text/tab-separated-values",
-            )
 
         with tab3:
             # Display the executed queries at the end
@@ -281,15 +269,12 @@ if run_button:
             st.text_area(
                 "All queries:", value="\n\n".join(executed_queries), height=300
             )
-            queries_tsv = [
+            queries_tsv = "\n".join([
                 f"{e}\t{f}" for e, f in [i.split(":", 1) for i in executed_queries]
-            ]
-            st.download_button(
-                "Download as TSV",
-                "\n".join(queries_tsv),
-                file_name="executed_queries.tsv",
-                mime="text/tab-separated-values",
-            )
+            ])
+            b64 = base64.b64encode(queries_tsv.encode()).decode()
+            href = f'<a href="data:file/csv;base64,{b64}" download="executed_queries.tsv">Download data as TSV</a>'
+            st.markdown(href, unsafe_allow_html=True)
 
         with tab4:
             # Display citations
