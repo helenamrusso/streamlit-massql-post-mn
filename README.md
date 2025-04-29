@@ -23,5 +23,3 @@ This project performs massQL post molecular networking jobs. It includes tools a
    streamlit run app.py
    ```
 2. Follow the instructions displayed in the terminal to provide the necessary data.
-
-
