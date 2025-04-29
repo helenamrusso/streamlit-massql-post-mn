@@ -14,7 +14,11 @@ from queries import *
 from streamlit.components.v1 import html
 
 page_title = "Post MN MassQL"
-st.set_page_config(page_title=page_title, page_icon=":flashlight:")
+
+#TODO: Bump version
+app_version = "2025-04-29"
+
+st.set_page_config(page_title=page_title, page_icon=":flashlight:", menu_items={"about": ("**App version: %s**" % app_version)})
 
 # Add a tracking token
 #TODO: Add token
