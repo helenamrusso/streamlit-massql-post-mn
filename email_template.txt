@@ -1,0 +1,12 @@
+Use this as a template to your message (you can delete this before sending).
+
+Please provide the query in the format "query_name", "MassQL query", "publication_doi".
+
+If no publication associated with the query is available leave it blank. Please provide a clear description for the query
+in the "query_name".
+
+Example:
+"Find a protonated precursor by searching for the presence of M+Na", "QUERY scaninfo(MS2DATA) WHERE MS2PREC=X AND MS1MZ=X AND MS1MZ=X+formula(Na)-formula(H)", "https://doi.org/10.1101/2022.08.06.503000"
+
+[Your Name]
+[Your institution]
