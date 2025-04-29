@@ -11,6 +11,11 @@ from massql import msql_engine
 import base64
 
 from queries import *
+from streamlit.components.v1 import html
+
+# Add a tracking token
+#TODO: Add token
+html('<script async defer data-website-id="<your_website_id>" src="https://analytics.gnps2.org/umami.js"></script>', width=0, height=0)
 
 page_title = "Post MN MassQL"
 st.set_page_config(page_title=page_title, page_icon=":flashlight:")
