@@ -13,12 +13,12 @@ import base64
 from queries import *
 from streamlit.components.v1 import html
 
+page_title = "Post MN MassQL"
+st.set_page_config(page_title=page_title, page_icon=":flashlight:")
+
 # Add a tracking token
 #TODO: Add token
 html('<script async defer data-website-id="<your_website_id>" src="https://analytics.gnps2.org/umami.js"></script>', width=0, height=0)
-
-page_title = "Post MN MassQL"
-st.set_page_config(page_title=page_title, page_icon=":flashlight:")
 
 citations = {
     "MassQL and Compendium queries": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
