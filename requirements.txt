@@ -3,3 +3,4 @@ requests
 pandas
 massql
 pyyaml
+matchms==0.21.1
