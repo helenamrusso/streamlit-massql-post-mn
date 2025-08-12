@@ -11,7 +11,7 @@ from streamlit.components.v1 import html
 
 from queries import *
 from utils import gnps2_get_libray_dataframe_wrapper, \
-    get_git_short_rev, download_and_filter_mgf
+    get_git_short_rev, download_and_filter_mgf, insert_mgf_info
 from welcome import welcome_page
 
 page_title = "Post MN MassQL"
@@ -116,6 +116,7 @@ with st.sidebar:
                 height=300
             )
 
+
         # Update custom queries
         def get_custom_queries(df):
             return {
@@ -124,15 +125,17 @@ with st.sidebar:
                 if row["name"] and row["query"]
             }
 
+
         custom_queries = get_custom_queries(edited_df)
 
-        run_button = st.button("🚀 Run Analysis", type="primary", use_container_width=True)
+        run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", use_container_width=True)
 
     # Reset results button
     if st.session_state.results_ready:
-        if st.button("🔄 New Analysis", use_container_width=True):
+        if st.button("New Analysis",icon=":material/replay:",  use_container_width=True):
             st.session_state.results_ready = False
             st.session_state.analysis_results = None
+            st.cache_data.clear()
             st.rerun()
 
 # Main page content
@@ -184,7 +187,8 @@ if not st.session_state.results_ready:
                 all_query_results_df["scan_list"] = all_query_results_df["scan_list"].apply(
                     lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
                 all_query_results_df = all_query_results_df.explode("scan_list")
-                all_query_results_df = all_query_results_df.rename(columns={"scan_list": "#Scan#", "query": "query_validation"})
+                all_query_results_df = all_query_results_df.rename(
+                    columns={"scan_list": "#Scan#", "query": "query_validation"})
 
             with st.spinner("Merging and displaying results..."):
                 all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].astype(str)
@@ -194,9 +198,10 @@ if not st.session_state.results_ready:
                 fallback_label = "Did not pass any selected query"
                 library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
 
-                library_final = library_final[["query_validation", "Compound_Name"] + [col for col in library_final.columns if
-                                                                                       col not in ["query_validation",
-                                                                                                   "Compound_Name"]]]
+                library_final = library_final[
+                    ["query_validation", "Compound_Name"] + [col for col in library_final.columns if
+                                                             col not in ["query_validation",
+                                                                         "Compound_Name"]]]
 
                 library_final = library_final.groupby("#Scan#", as_index=False).agg(
                     {
@@ -317,3 +322,16 @@ else:
         st.markdown("## Citations")
         for key, citation in citations.items():
             st.markdown(f"**{key}:** {citation}")
+
+    st.subheader("Download MGF with validated scans")
+
+    if st.button("Generate MGF with validated scans", type="primary", icon=":material/manufacturing:"):
+        buf = insert_mgf_info(task_id, f'./temp_mgf/{task_id}_mgf_cleaned.mgf',
+                              full_table[["#Scan#", "query_validation"]].astype(str))
+        st.download_button(
+            label="Download validated MGF",
+            data=buf.getvalue(),
+            file_name=f"{task_id}_validated_scans.mgf",
+            mime="txt/plain",
+            icon=":material/download:"
+        )
