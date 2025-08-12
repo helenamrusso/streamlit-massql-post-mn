@@ -6,19 +6,19 @@ def welcome_page():
     st.markdown("""
     ### 📖 Citations
     **MassQL and Compendium queries:**  
-    Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022).  
-    **A Universal Language for Finding Mass Spectrometry Data Patterns**  
-    *bioRxiv*; doi: [https://doi.org/10.1101/2022.08.06.503000](https://doi.org/10.1101/2022.08.06.503000)
+    Damiani, T., Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2025).  
+    **A universal language for finding mass spectrometry data patterns**  
+    *Nature Methods*, 22(6), 1247–1254. doi: [10.1038/s41592-025-02660-z](https://doi.org/10.1038/s41592-025-02660-z)
     
     **Bile acid queries:**  
     Mohanty, I., Mannochio-Russo, H., Schweer, J.V., et al. (2024).  
     **The underappreciated diversity of bile acid modifications**  
-    *Cell*, 187(7), 1801–1818.e20. doi: [https://doi.org/10.1016/j.cell.2024.02.019](https://doi.org/10.1016/j.cell.2024.02.019)
+   *Cell*, 187(7), 1801–1818.e20. doi: [10.1016/j.cell.2024.02.019](https://doi.org/10.1016/j.cell.2024.02.019)
     
     **N-acyl lipids queries:**  
     Mannochio-Russo, H., Charron-Lamoureux, V., van Faassen, M., et al. (2025).  
-    **The microbiome diversifies N-acyl lipid pools – including short-chain fatty acid-derived compounds**  
-    *Cell*, 188(15), 4154–4169.e19. doi: [https://doi.org/10.1016/j.cell.2025.05.015](https://doi.org/10.1016/j.cell.2025.05.015)
+    **The microbiome diversifies long- to short-chain fatty acid-derived N-acyl lipids**  
+    *Cell*, 188(15), 4154–4169.e19. doi: [10.1016/j.cell.2025.05.015](https://doi.org/10.1016/j.cell.2025.05.015)
 
     ### 🧭 Purpose
     This app is designed to **contextualize GNPS molecular networking results** using MassQL (Mass Spectrometry Query Language). It enables interpretation of spectral data by applying **predefined or custom queries** to identify specific molecular patterns and chemical features.

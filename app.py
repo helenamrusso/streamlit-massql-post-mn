@@ -31,7 +31,7 @@ html('<script async defer data-website-id="<your_website_id>" src="https://analy
      width=0, height=0)
 
 citations = {
-    "MassQL and Compendium queries": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
+    "MassQL and Compendium queries": """Damiani, T., Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2025).  A universal language for finding mass spectrometry data patterns. Nature Methods, 22(6), 1247–1254. https://doi.org/10.1038/s41592-025-02660-z""",
     "Bile acid queries": """Mohanty, I., Mannochio-Russo, H., Schweer, J.V., et al. (2024). The underappreciated diversity of bile acid modifications. Cell, 187(7), 1801–1818.e20. https://doi.org/10.1016/j.cell.2024.02.019""",
     "N-acyl lipids queries": """Mannochio-Russo, H., Charron-Lamoureux, V., van Faassen, M., et al. (2025).  The microbiome diversifies N-acyl lipid pools – including short-chain fatty acid-derived compounds. Cell, 188(15), 4154–4169.e19. https://doi.org/10.1016/j.cell.2025.05.015""",
 }
