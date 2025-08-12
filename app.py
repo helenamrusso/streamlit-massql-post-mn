@@ -130,6 +130,25 @@ with st.sidebar:
 
         run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", use_container_width=True)
 
+    st.subheader("Contributors")
+    st.markdown(
+        """
+    - [Helena Russo PhD](https://sites.google.com/view/helenamrusso/home) - UC San Diego
+    - [Wilhan Nunes PhD](https://scholar.google.com/citations?user=4cPVoeIAAAAJ) - UC San Diego
+    - [Mingxun Wang PhD](https://www.cs.ucr.edu/~mingxunw/) - UC Riverside
+    """
+    )
+
+    st.subheader("Documentations and Resources")
+    st.markdown(
+        """
+    [Feature Based Molecular Networking](https://wang-bioinformatics-lab.github.io/GNPS2_Documentation/fbmn/)<br>
+    [MassQL documentation](https://mwang87.github.io/MassQueryLanguage_Documentation/)
+    """,
+        unsafe_allow_html=True,
+    )
+
+
     # Reset results button
     if st.session_state.results_ready:
         if st.button("New Analysis",icon=":material/replay:",  use_container_width=True):
