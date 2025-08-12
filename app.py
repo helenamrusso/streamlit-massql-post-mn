@@ -1,28 +1,34 @@
 import ast
+import base64
 import glob
 import os
 import urllib.parse
-import uuid
 
 import pandas as pd
-import requests
 import streamlit as st
+from gnpsdata import taskinfo
 from massql import msql_engine
-import base64
-
-from queries import *
 from streamlit.components.v1 import html
 
+from queries import *
+from utils import fbmn_download_mgf_wrapper, gnps2_download_resultfile_wrapper, gnps2_get_libray_dataframe_wrapper, \
+    get_git_short_rev
+
 page_title = "Post MN MassQL"
+git_hash = get_git_short_rev()
+repo_link = "https://github.com/helenamrusso/streamlit-massql-post-mn"
 
-#TODO: Bump version
-app_version = "2025-04-29"
+# TODO: Bump version
+app_version = "2025-08-12"
 
-st.set_page_config(page_title=page_title, page_icon=":flashlight:", menu_items={"about": ("**App version: %s**" % app_version)})
+st.set_page_config(page_title=page_title, page_icon=":flashlight:",
+                   menu_items={"About": (f"**App version**: {app_version} | "
+                                         f"[**Git Hash**: {git_hash}]({repo_link}/commit/{git_hash})")})
 
 # Add a tracking token
-#TODO: Add token
-html('<script async defer data-website-id="<your_website_id>" src="https://analytics.gnps2.org/umami.js"></script>', width=0, height=0)
+# TODO: Add token
+html('<script async defer data-website-id="<your_website_id>" src="https://analytics.gnps2.org/umami.js"></script>',
+     width=0, height=0)
 
 citations = {
     "MassQL and Compendium queries": """Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2022). A Universal Language for Finding Mass Spectrometry Data Patterns. bioRxiv. https://doi.org/10.1101/2022.08.06.503000""",
@@ -96,16 +102,19 @@ if selected_query_dict:
     custom_queries = get_custom_queries(edited_df)
 
 
-@st.cache_data()
+@st.cache_data
 def download_and_filter_mgf(task_id: str) -> (str, str):
-    mgf_url = f"https://gnps2.org/result?task={task_id}&viewname=specms&resultdisplay_type=task"
-    response = requests.get(mgf_url)
     os.makedirs("temp_mgf", exist_ok=True)
-    unique_uuid = str(uuid.uuid4())
-    mgf_file_path = f"temp_mgf/{unique_uuid}_mgf_all.mgf"
-    with open(mgf_file_path, "wb") as fout:
-        fout.write(response.content)
-    ## Extract all scan numbers from the MGF file
+    mgf_file_path = f"temp_mgf/{task_id}_mgf_all.mgf"
+
+    task_info = taskinfo.get_task_information(task_id)
+    workflowname = task_info.get('workflowname')
+    if workflowname == 'feature_based_molecular_networking_workflow':
+        fbmn_download_mgf_wrapper(mgf_file_path, task_id)
+    elif workflowname == 'classical_networking_workflow':
+        gnps2_download_resultfile_wrapper(mgf_file_path, task_id)
+    else:
+        raise ValueError(f"Unsupported workflow: {workflowname}. Cannot download MGF.")
     scan_list = []
     with open(mgf_file_path, "r") as mgf_file:
         lines = mgf_file.readlines()
@@ -130,7 +139,7 @@ def download_and_filter_mgf(task_id: str) -> (str, str):
         else:
             cleaned_mgf_lines.append(line)
     # Save the cleaned MGF file
-    cleaned_mgf = f"temp_mgf/{unique_uuid}_mgf_cleaned.mgf"
+    cleaned_mgf = f"temp_mgf/{task_id}_mgf_cleaned.mgf"
     with open(cleaned_mgf, "w") as fout:
         fout.writelines(cleaned_mgf_lines)
 
@@ -148,10 +157,7 @@ if run_button:
     executed_queries = []
 
     with st.spinner("Downloading files and running queries..."):
-        library_matches = pd.read_csv(
-            f"https://gnps2.org/resultfile?task={task_id}&file=nf_output/library/merged_results_with_gnps.tsv",
-            sep="\t",
-        )
+        library_matches = gnps2_get_libray_dataframe_wrapper(task_id)
         cleaned_mgf_path, all_scans = download_and_filter_mgf(task_id)
         mgf_path = cleaned_mgf_path
 
@@ -270,7 +276,6 @@ if run_button:
 
             st.write("Number of scans that matched each query in the full table:")
             st.dataframe(query_summary_full)
-
 
         with tab3:
             # Display the executed queries at the end
