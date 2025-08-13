@@ -27,7 +27,8 @@ st.set_page_config(page_title=page_title, page_icon=":flashlight:", layout="wide
 
 # Add a tracking token
 # TODO: Add token
-html('<script async defer data-website-id="<your_website_id>" src="https://analytics.gnps2.org/umami.js"></script>',
+# Testing token
+html('<script defer src="https://analytics-api.gnps2.org/script.js" data-website-id="74665d88-3b9d-4812-b8fc-7f55ceb08f11"></script>',
      width=0, height=0)
 
 citations = {
