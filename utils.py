@@ -27,9 +27,20 @@ def gnps2_get_libray_dataframe_wrapper(task_id):
     return taskresult.get_gnps2_task_resultfile_dataframe(task_id, 'nf_output/library/merged_results_with_gnps.tsv')
 
 
-def download_and_filter_mgf(task_id: str) -> (str, str):
+def download_and_filter_mgf(task_id: str) -> (str, list):
     os.makedirs("temp_mgf", exist_ok=True)
     mgf_file_path = f"temp_mgf/{task_id}_mgf_all.mgf"
+    cleaned_mgf = f"temp_mgf/{task_id}_mgf_cleaned.mgf"
+
+    # Skip if cleaned file already exists
+    if os.path.exists(cleaned_mgf):
+        print(f"Skipping download, using existing file: {cleaned_mgf}")
+        scan_list = []
+        with open(cleaned_mgf, "r") as mgf_file:
+            for line in mgf_file:
+                if line.startswith("SCANS="):
+                    scan_list.append(line.strip().split("=")[1])
+        return cleaned_mgf, scan_list
 
     task_info = taskinfo.get_task_information(task_id)
     workflowname = task_info.get('workflowname')
@@ -62,8 +73,7 @@ def download_and_filter_mgf(task_id: str) -> (str, str):
             current_scan.append(line)
         else:
             cleaned_mgf_lines.append(line)
-    # Save the cleaned MGF file
-    cleaned_mgf = f"temp_mgf/{task_id}_mgf_cleaned.mgf"
+
     with open(cleaned_mgf, "w") as fout:
         fout.writelines(cleaned_mgf_lines)
 
