@@ -11,7 +11,7 @@ from streamlit.components.v1 import html
 
 from queries import *
 from utils import gnps2_get_libray_dataframe_wrapper, \
-    get_git_short_rev, download_and_filter_mgf, insert_mgf_info
+    get_git_short_rev, download_and_filter_mgf, insert_mgf_info, create_mirrorplot_link
 from welcome import welcome_page
 
 page_title = "Post MN MassQL"
@@ -131,6 +131,14 @@ with st.sidebar:
 
         run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", use_container_width=True)
 
+    # Reset results button
+    if st.session_state.results_ready:
+        if st.button("New Analysis", icon=":material/replay:", use_container_width=True):
+            st.session_state.results_ready = False
+            st.session_state.analysis_results = None
+            st.cache_data.clear()
+            st.rerun()
+
     st.subheader("Contributors")
     st.markdown(
         """
@@ -148,15 +156,6 @@ with st.sidebar:
     """,
         unsafe_allow_html=True,
     )
-
-
-    # Reset results button
-    if st.session_state.results_ready:
-        if st.button("New Analysis",icon=":material/replay:",  use_container_width=True):
-            st.session_state.results_ready = False
-            st.session_state.analysis_results = None
-            st.cache_data.clear()
-            st.rerun()
 
 # Main page content
 if not st.session_state.results_ready:
@@ -177,7 +176,7 @@ if not st.session_state.results_ready:
             with st.spinner("Downloading files and running queries..."):
                 try:
                     library_matches = gnps2_get_libray_dataframe_wrapper(task_id)
-                    cleaned_mgf_path, all_scans = download_and_filter_mgf(task_id)
+                    cleaned_mgf_path, all_scans, pepmass_list = download_and_filter_mgf(task_id)
                     mgf_path = cleaned_mgf_path
                 except Exception as e:
                     st.error(f"Error downloading files: {str(e)}")
@@ -217,11 +216,12 @@ if not st.session_state.results_ready:
                 library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
                 fallback_label = "Did not pass any selected query"
                 library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
+                create_mirrorplot_link(library_final, task_id)
 
+                column_order = ["mirror_link", "query_validation", "Compound_Name"]
                 library_final = library_final[
-                    ["query_validation", "Compound_Name"] + [col for col in library_final.columns if
-                                                             col not in ["query_validation",
-                                                                         "Compound_Name"]]]
+                    column_order + [col for col in library_final.columns if
+                             col not in column_order]]
 
                 library_final = library_final.groupby("#Scan#", as_index=False).agg(
                     {
@@ -237,14 +237,16 @@ if not st.session_state.results_ready:
                 # Create full table
                 all_scans_df = pd.DataFrame({'#Scan#': all_scans})
                 all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
+                all_scans_df['pepmass'] = pepmass_list
 
                 full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
                 full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
                 full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
+                create_mirrorplot_link(full_table, task_id)
 
                 # Allow multiple queries per scan in the full table
                 full_table = full_table.groupby(['#Scan#', 'query_validation'], as_index=False).first()
-                col_order = ['#Scan#', 'query_validation', 'Compound_Name']
+                col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']
                 full_table = full_table[col_order + [col for col in full_table.columns if col not in col_order]]
 
                 # Clean up temporary files
@@ -288,7 +290,8 @@ else:
 
     with tab1:
         st.markdown("## Table With Library Matches Only")
-        st.dataframe(library_final, use_container_width=True)
+        st.dataframe(library_final, use_container_width=True, column_config={
+            "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")})
 
         library_download = library_final.to_csv(sep='\t', index=False)
         b64 = base64.b64encode(library_download.encode()).decode()
@@ -302,11 +305,17 @@ else:
         query_summary_library = library_final.groupby('query_validation')['#Scan#'].nunique().reset_index()
 
         st.write("Number of scans that matched each query:")
-        st.dataframe(query_summary_library.rename(columns={"#Scan#": "Number of Scans"}), use_container_width=True)
+        st.dataframe(query_summary_library.rename(columns={"#Scan#": "Number of Scans"}), use_container_width=True,
+                     column_config={
+                         "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")}
+                     )
 
     with tab2:
         st.markdown("## Full Table With All Scans")
-        st.dataframe(full_table, use_container_width=True)
+        st.dataframe(full_table, use_container_width=True,
+                     column_config={
+                         "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")}
+                     )
 
         full_download = full_table.to_csv(sep='\t', index=False)
         b64 = base64.b64encode(full_download.encode()).decode()

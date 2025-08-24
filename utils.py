@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 from io import StringIO
 
 import pandas as pd
@@ -27,7 +28,7 @@ def gnps2_get_libray_dataframe_wrapper(task_id):
     return taskresult.get_gnps2_task_resultfile_dataframe(task_id, 'nf_output/library/merged_results_with_gnps.tsv')
 
 
-def download_and_filter_mgf(task_id: str) -> (str, list):
+def download_and_filter_mgf(task_id: str) -> (str, list, list):
     os.makedirs("temp_mgf", exist_ok=True)
     mgf_file_path = f"temp_mgf/{task_id}_mgf_all.mgf"
     cleaned_mgf = f"temp_mgf/{task_id}_mgf_cleaned.mgf"
@@ -35,12 +36,14 @@ def download_and_filter_mgf(task_id: str) -> (str, list):
     # Skip if cleaned file already exists
     if os.path.exists(cleaned_mgf):
         print(f"Skipping download, using existing file: {cleaned_mgf}")
-        scan_list = []
+        scan_list, pepmass_list = [], []
         with open(cleaned_mgf, "r") as mgf_file:
             for line in mgf_file:
                 if line.startswith("SCANS="):
                     scan_list.append(line.strip().split("=")[1])
-        return cleaned_mgf, scan_list
+                elif line.startswith("PEPMASS="):
+                    pepmass_list.append(line.strip().split("=")[1].split()[0])
+        return cleaned_mgf, scan_list, pepmass_list
 
     task_info = taskinfo.get_task_information(task_id)
     workflowname = task_info.get('workflowname')
@@ -50,9 +53,11 @@ def download_and_filter_mgf(task_id: str) -> (str, list):
         gnps2_download_resultfile_wrapper(mgf_file_path, task_id)
     else:
         raise ValueError(f"Unsupported workflow: {workflowname}. Cannot download MGF.")
-    scan_list = []
+
+    scan_list, pepmass_list = [], []
     with open(mgf_file_path, "r") as mgf_file:
         lines = mgf_file.readlines()
+
     cleaned_mgf_lines = []
     inside_scan = False
     current_scan = []
@@ -63,9 +68,9 @@ def download_and_filter_mgf(task_id: str) -> (str, list):
         elif line.startswith("END IONS"):
             current_scan.append(line)
             if any(
-                    len(peak.split()) == 2
-                    and all(part.replace(".", "", 1).isdigit() for part in peak.split())
-                    for peak in current_scan
+                len(peak.split()) == 2
+                and all(part.replace(".", "", 1).isdigit() for part in peak.split())
+                for peak in current_scan
             ):
                 cleaned_mgf_lines.extend(current_scan)
             inside_scan = False
@@ -82,8 +87,10 @@ def download_and_filter_mgf(task_id: str) -> (str, list):
         for line in mgf_file:
             if line.startswith("SCANS="):
                 scan_list.append(line.strip().split("=")[1])
+            elif line.startswith("PEPMASS="):
+                pepmass_list.append(line.strip().split("=")[1].split()[0])
 
-    return cleaned_mgf, scan_list
+    return cleaned_mgf, scan_list, pepmass_list
 
 
 def insert_mgf_info(task: str, input_mgf: str, validation_df: pd.DataFrame) -> StringIO:
@@ -145,3 +152,22 @@ def insert_mgf_info(task: str, input_mgf: str, validation_df: pd.DataFrame) -> S
     print(f"Processed {input_mgf}")
     buffer.seek(0)
     return buffer
+
+
+def create_mirrorplot_link(result_df: pd.DataFrame, task_id: str):
+    result_df['mirror_link'] = result_df.apply(
+        lambda x:
+            "https://metabolomics-usi.gnps2.org/dashinterface/?usi1="
+            + urllib.parse.quote(
+                f"mzspec:GNPS2:TASK-{task_id}-nf_output/clustering/spectra_reformatted.mgf:scan:{x['#Scan#']}"
+            )
+            + "&usi2="
+            + urllib.parse.quote(
+                f"mzspec:GNPS:GNPS-LIBRARY:accession:{x['SpectrumID']}"
+            ) if pd.notna(x['SpectrumID']) else
+            "https://metabolomics-usi.gnps2.org/dashinterface/?usi1="
+            + urllib.parse.quote(
+                f"mzspec:GNPS2:TASK-{task_id}-nf_output/clustering/spectra_reformatted.mgf:scan:{x['#Scan#']}"
+            ),
+        axis=1
+    )
