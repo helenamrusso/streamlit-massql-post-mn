@@ -293,7 +293,21 @@ else:
         st.dataframe(library_final, use_container_width=True, column_config={
             "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")})
 
-        library_download = library_final.to_csv(sep='\t', index=False)
+        # Build a multi-line header: one item per line as "key<TAB>value"
+        header_lines = [f"task_id\t{task_id}"]
+        for eq in executed_queries:
+            try:
+                name, q = eq.split(":", 1)
+                name = name.strip()
+                # sanitize value: remove tabs/newlines to keep TSV integrity
+                q = q.strip().replace('\t', ' ').replace('\n', ' ')
+                header_lines.append(f"{name}\t{q}")
+            except Exception:
+                # If parsing fails, skip this entry
+                continue
+
+        header_text = "\n".join(header_lines) + "\n"
+        library_download = header_text + "\n" + library_final.to_csv(sep='\t', index=False)
         b64 = base64.b64encode(library_download.encode()).decode()
         href = f'<a href="data:file/csv;base64,{b64}" download="library_matches.tsv">Download TSV table</a>'
         st.markdown(href, unsafe_allow_html=True)
@@ -317,7 +331,19 @@ else:
                          "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")}
                      )
 
-        full_download = full_table.to_csv(sep='\t', index=False)
+        # Prepend the same multi-line header to the full table TSV
+        header_lines = [f"task_id\t{task_id}"]
+        for eq in executed_queries:
+            try:
+                name, q = eq.split(":", 1)
+                name = name.strip()
+                q = q.strip().replace('\t', ' ').replace('\n', ' ')
+                header_lines.append(f"{name}\t{q}")
+            except Exception:
+                continue
+
+        header_text = "\n".join(header_lines) + "\n"
+        full_download = header_text + "\n" + full_table.to_csv(sep='\t', index=False)
         b64 = base64.b64encode(full_download.encode()).decode()
         href = f'<a href="data:file/csv;base64,{b64}" download="full_table.tsv">Download TSV table</a>'
         st.markdown(href, unsafe_allow_html=True)
