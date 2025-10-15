@@ -26,10 +26,8 @@ st.set_page_config(page_title=page_title, page_icon=":flashlight:", layout="wide
                                          f"[**Git Hash**: {git_hash}]({repo_link}/commit/{git_hash})")})
 
 # Add a tracking token
-# TODO: Add token
-# Testing token
-html('<script defer src="https://analytics-api.gnps2.org/script.js" data-website-id="74665d88-3b9d-4812-b8fc-7f55ceb08f11"></script>',
-     width=0, height=0)
+html('<script async defer data-website-id="74bc9983-13c4-4da0-89ae-b78209c13aaf" src="https://analytics.gnps2.org/umami.js"></script>', width=0, height=0)
+html('<script defer src="https://analytics-api.gnps2.org/script.js" data-website-id="74665d88-3b9d-4812-b8fc-7f55ceb08f11"></script>', width=0, height=0)
 
 citations = {
     "MassQL and Compendium queries": """Damiani, T., Jarmusch, A.K., Aron, A.T., Petras, D., et al. (2025).  A universal language for finding mass spectrometry data patterns. Nature Methods, 22(6), 1247–1254. https://doi.org/10.1038/s41592-025-02660-z""",
