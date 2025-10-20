@@ -83,7 +83,7 @@ with st.sidebar:
             "Enter GNPS2 Task ID",
             placeholder="Enter a GNPS2 task ID",
             value=query_params.get("task_id", ""),
-        )
+        ).strip()
 
     # Multiselect to choose one or more queries or groups
     defined_query_modes = st.multiselect(
@@ -111,7 +111,7 @@ with st.sidebar:
             edited_df = st.data_editor(
                 editable_df,
                 num_rows="dynamic",
-                use_container_width=True,
+                width='content',
                 height=300
             )
 
@@ -127,11 +127,11 @@ with st.sidebar:
 
         custom_queries = get_custom_queries(edited_df)
 
-        run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", use_container_width=True)
+        run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", width='content')
 
     # Reset results button
     if st.session_state.results_ready:
-        if st.button("New Analysis", icon=":material/replay:", use_container_width=True):
+        if st.button("New Analysis", icon=":material/replay:", width='content'):
             st.session_state.results_ready = False
             st.session_state.analysis_results = None
             st.cache_data.clear()
@@ -243,9 +243,17 @@ if not st.session_state.results_ready:
                 create_mirrorplot_link(full_table, task_id)
 
                 # Allow multiple queries per scan in the full table
-                full_table = full_table.groupby(['#Scan#', 'query_validation'], as_index=False).first()
                 col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']
-                full_table = full_table[col_order + [col for col in full_table.columns if col not in col_order]]
+                full_table = full_table.groupby("#Scan#", as_index=False).agg(
+                    {
+                        "query_validation": lambda x: ", ".join(set(x)),
+                        **{
+                            col: "first"
+                            for col in full_table.columns
+                            if col not in col_order
+                        },
+                    }
+                )
 
                 # Clean up temporary files
                 feather_files = glob.glob("temp_mgf/*.feather")
@@ -288,7 +296,7 @@ else:
 
     with tab1:
         st.markdown("## Table With Library Matches Only")
-        st.dataframe(library_final, use_container_width=True, column_config={
+        st.dataframe(library_final, width='content', column_config={
             "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")})
 
         # Build a multi-line header: one item per line as "key<TAB>value"
@@ -317,14 +325,14 @@ else:
         query_summary_library = library_final.groupby('query_validation')['#Scan#'].nunique().reset_index()
 
         st.write("Number of scans that matched each query:")
-        st.dataframe(query_summary_library.rename(columns={"#Scan#": "Number of Scans"}), use_container_width=True,
+        st.dataframe(query_summary_library.rename(columns={"#Scan#": "Number of Scans"}), width='content',
                      column_config={
                          "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")}
                      )
 
     with tab2:
         st.markdown("## Full Table With All Scans")
-        st.dataframe(full_table, use_container_width=True,
+        st.dataframe(full_table, width='content',
                      column_config={
                          "mirror_link": st.column_config.LinkColumn("Mirror plot", width='small', display_text="View")}
                      )
@@ -355,7 +363,7 @@ else:
         ].nunique()
 
         st.write("Number of scans that matched each query in the full table:")
-        st.dataframe(query_summary_full, use_container_width=True)
+        st.dataframe(query_summary_full, width='content')
 
     with tab3:
         # Display the executed queries at the end

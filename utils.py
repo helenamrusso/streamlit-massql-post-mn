@@ -96,7 +96,7 @@ def download_and_filter_mgf(task_id: str) -> (str, list, list):
 def insert_mgf_info(task: str, input_mgf: str, validation_df: pd.DataFrame) -> StringIO:
     print(f"Inserting MGF info for task {task}...")
 
-    mask = validation_df["query_validation"] != "Did not pass any selected query"
+    mask = ~validation_df["query_validation"].str.contains('Did not pass any selected query', na=True, case=False)
     valid_scans = set(
         pd.to_numeric(validation_df.loc[mask, "#Scan#"], errors="coerce")
         .dropna().astype(int).tolist()
