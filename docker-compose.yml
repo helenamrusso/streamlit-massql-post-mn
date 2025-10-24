@@ -28,6 +28,31 @@ services:
       LETSENCRYPT_HOST: massqlpostmn.gnps2.org
       LETSENCRYPT_EMAIL: mwang87@gmail.com
 
+  streamlit-massql-post-mn-redis:
+    image: redis:7.2
+    container_name: structure-masst-redis
+    networks:
+      - default
+    restart: unless-stopped
+    volumes:
+      - ./redis-data:/data
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning", "--maxmemory", "2gb", "--maxmemory-policy", "allkeys-lru"]
+
+  streamlit-massql-post-mn-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: streamlit-massql-post-mn-worker
+    command: /app/run_worker.sh
+    volumes:
+      - ./logs:/app/logs:rw
+      - ./temp:/app/temp_mgf:rw
+    depends_on:
+      - streamlit-massql-post-mn-redis
+    networks:
+      - default
+    restart: unless-stopped
+
 networks:
   nginx-net:
     external:

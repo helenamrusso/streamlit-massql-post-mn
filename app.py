@@ -35,6 +35,180 @@ citations = {
     "N-acyl lipids queries": """Mannochio-Russo, H., Charron-Lamoureux, V., van Faassen, M., et al. (2025).  The microbiome diversifies N-acyl lipid pools – including short-chain fatty acid-derived compounds. Cell, 188(15), 4154–4169.e19. https://doi.org/10.1016/j.cell.2025.05.015""",
 }
 
+def run_analysis_with_celery_sequential(task_id, custom_queries):
+    """
+    Alternative version that runs queries sequentially but still distributed.
+    Better for tracking individual query progress.
+    """
+    from tasks import download_and_process_mgf_task, run_massql_query_task
+    from utils import create_mirrorplot_link
+    
+    executed_queries = []
+    
+    # Step 1: Download (same as parallel version)
+    with st.spinner("Submitting download task to worker..."):
+        try:
+            download_task = download_and_process_mgf_task.apply_async(args=[task_id])
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            while not download_task.ready():
+                if download_task.state == 'PROGRESS':
+                    meta = download_task.info
+                    progress = meta.get('current', 0) / meta.get('total', 1)
+                    progress_bar.progress(progress)
+                    status_text.text(meta.get('status', 'Processing...'))
+                time.sleep(0.5)
+            
+            if download_task.state == 'FAILURE':
+                st.error(f"Error: {download_task.info.get('error', 'Unknown error')}")
+                st.stop()
+            
+            download_result = download_task.get()
+            library_matches = pd.DataFrame.from_dict(download_result['library_matches'])
+            cleaned_mgf_path = download_result['cleaned_mgf_path']
+            all_scans = download_result['all_scans']
+            pepmass_list = download_result['pepmass_list']
+            
+            progress_bar.progress(1.0)
+            status_text.text("✅ Download complete!")
+            
+        except Exception as e:
+            st.error(f"Error downloading files: {str(e)}")
+            st.stop()
+    
+    # Step 2: Run queries sequentially with better tracking
+    with st.spinner("Running MassQL queries..."):
+        try:
+            all_query_results = []
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            container = st.empty()
+            
+            total_queries = len(custom_queries)
+            
+            for idx, (query_name, query_string) in enumerate(custom_queries.items(), 1):
+                # Update display
+                with container:
+                    st.write(f"🔄 Query {idx}/{total_queries}: {query_name}")
+                
+                executed_queries.append(f"{query_name}: {query_string}")
+                
+                # Submit query task
+                query_task = run_massql_query_task.apply_async(
+                    args=[query_name, query_string, cleaned_mgf_path]
+                )
+                
+                # Wait for completion
+                while not query_task.ready():
+                    time.sleep(0.1)
+                
+                if query_task.state == 'FAILURE':
+                    st.warning(f"Query '{query_name}' failed: {query_task.info.get('error')}")
+                    all_query_results.append({'query': query_name, 'scan_list': []})
+                else:
+                    result = query_task.get()
+                    all_query_results.append(result)
+                
+                # Update progress
+                progress_bar.progress(idx / total_queries)
+                status_text.text(f"Completed {idx}/{total_queries} queries")
+            
+            # Convert to DataFrame (same as parallel version)
+            all_query_results_df = pd.DataFrame(all_query_results)
+            all_query_results_df = all_query_results_df.rename(
+                columns={"scan_list": "#Scan#", "query": "query_validation"}
+            )
+            all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].apply(
+                lambda x: "[]" if len(x) == 0 else x
+            )
+            all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].apply(
+                lambda x: ast.literal_eval(x) if isinstance(x, str) else x
+            )
+            all_query_results_df = all_query_results_df.explode("#Scan#")
+            
+            status_text.text("✅ All queries complete!")
+            
+        except Exception as e:
+            st.error(f"Error running queries: {str(e)}")
+            st.stop()
+
+    with st.spinner("Merging and displaying results..."):
+        # Convert scan numbers to strings for merging
+        all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].astype(str)
+        library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
+        
+        # Merge library matches with query results
+        library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
+        fallback_label = "Did not pass any selected query"
+        library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
+        create_mirrorplot_link(library_final, task_id)
+        
+        # Reorder columns
+        column_order = ["mirror_link", "query_validation", "Compound_Name"]
+        library_final = library_final[
+            column_order + [col for col in library_final.columns if col not in column_order]
+        ]
+        
+        # Group by scan and aggregate
+        library_final = library_final.groupby("#Scan#", as_index=False).agg(
+            {
+                "query_validation": lambda x: ", ".join(set(x)),
+                **{
+                    col: "first"
+                    for col in library_final.columns
+                    if col not in ["#Scan#", "query_validation"]
+                },
+            }
+        )
+        
+        # Create full table with all scans
+        all_scans_df = pd.DataFrame({'#Scan#': all_scans})
+        all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
+        all_scans_df['pepmass'] = pepmass_list
+        
+        full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
+        full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
+        full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
+        create_mirrorplot_link(full_table, task_id)
+        
+        # Allow multiple queries per scan in the full table
+        col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']
+        full_table = full_table.groupby("#Scan#", as_index=False).agg(
+            {
+                "query_validation": lambda x: ", ".join(set(x)),
+                **{
+                    col: "first"
+                    for col in full_table.columns
+                    if col not in col_order
+                },
+            }
+        )
+        
+        # Clean up temporary files
+        import glob
+        import os
+        feather_files = glob.glob("temp_mgf/*.feather")
+        for file in feather_files:
+            try:
+                os.remove(file)
+            except Exception as e:
+                st.warning(f"Could not delete {file}: {e}")
+        
+        # Store results in session state
+        st.session_state.analysis_results = {
+            'library_final': library_final,
+            'full_table': full_table,
+            'executed_queries': executed_queries,
+            'task_id': task_id
+        }
+        st.session_state.results_ready = True
+    
+    st.success("Analysis complete!", icon="✅")
+    st.rerun()
+
+
 # Initialize session state for results
 if 'results_ready' not in st.session_state:
     st.session_state.results_ready = False
@@ -168,112 +342,7 @@ if not st.session_state.results_ready:
         elif not custom_queries:
             st.error("Please select at least one query in the sidebar.")
         else:
-            # Initialize a list to store the queries that were run
-            executed_queries = []
-
-            with st.spinner("Downloading files and running queries..."):
-                try:
-                    library_matches = gnps2_get_libray_dataframe_wrapper(task_id)
-                    cleaned_mgf_path, all_scans, pepmass_list = download_and_filter_mgf(task_id)
-                    mgf_path = cleaned_mgf_path
-                except Exception as e:
-                    st.error(f"Error downloading files: {str(e)}")
-                    st.stop()
-
-            with st.spinner("Running MassQL queries... This may take a while, please be patient!"):
-                all_query_results_df = []
-                container = st.empty()
-                for query_name, input_query in custom_queries.items():
-                    with container:
-                        st.write(f"Running query: {query_name}")
-                        executed_queries.append(f"{query_name}: {input_query}")
-                        try:
-                            results_df = msql_engine.process_query(input_query, mgf_path)
-                        except KeyError:
-                            results_df = pd.DataFrame()
-
-                    if len(results_df) == 0:
-                        all_query_results_df.append({"query": query_name, "scan_list": "NA"})
-                    else:
-                        passed_scan_ls = results_df["scan"].values.tolist()
-                        passed_scan_ls = [int(x) for x in passed_scan_ls]
-                        all_query_results_df.append({"query": query_name, "scan_list": passed_scan_ls})
-
-                all_query_results_df = pd.DataFrame(all_query_results_df)
-                all_query_results_df["scan_list"] = all_query_results_df["scan_list"].replace("NA", "[]")
-                all_query_results_df["scan_list"] = all_query_results_df["scan_list"].apply(
-                    lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
-                all_query_results_df = all_query_results_df.explode("scan_list")
-                all_query_results_df = all_query_results_df.rename(
-                    columns={"scan_list": "#Scan#", "query": "query_validation"})
-
-            with st.spinner("Merging and displaying results..."):
-                all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].astype(str)
-                library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
-
-                library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
-                fallback_label = "Did not pass any selected query"
-                library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
-                create_mirrorplot_link(library_final, task_id)
-
-                column_order = ["mirror_link", "query_validation", "Compound_Name"]
-                library_final = library_final[
-                    column_order + [col for col in library_final.columns if
-                             col not in column_order]]
-
-                library_final = library_final.groupby("#Scan#", as_index=False).agg(
-                    {
-                        "query_validation": lambda x: ", ".join(set(x)),
-                        **{
-                            col: "first"
-                            for col in library_final.columns
-                            if col not in ["#Scan#", "query_validation"]
-                        },
-                    }
-                )
-
-                # Create full table
-                all_scans_df = pd.DataFrame({'#Scan#': all_scans})
-                all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
-                all_scans_df['pepmass'] = pepmass_list
-
-                full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
-                full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
-                full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
-                create_mirrorplot_link(full_table, task_id)
-
-                # Allow multiple queries per scan in the full table
-                col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']
-                full_table = full_table.groupby("#Scan#", as_index=False).agg(
-                    {
-                        "query_validation": lambda x: ", ".join(set(x)),
-                        **{
-                            col: "first"
-                            for col in full_table.columns
-                            if col not in col_order
-                        },
-                    }
-                )
-
-                # Clean up temporary files
-                feather_files = glob.glob("temp_mgf/*.feather")
-                for file in feather_files:
-                    try:
-                        os.remove(file)
-                    except Exception as e:
-                        st.warning(f"Could not delete {file}: {e}")
-
-                # Store results in session state
-                st.session_state.analysis_results = {
-                    'library_final': library_final,
-                    'full_table': full_table,
-                    'executed_queries': executed_queries,
-                    'task_id': task_id
-                }
-                st.session_state.results_ready = True
-
-            st.success("Analysis complete!", icon="✅")
-            st.rerun()
+            run_analysis_with_celery_sequential(task_id, custom_queries)
 
 else:
     # Display results

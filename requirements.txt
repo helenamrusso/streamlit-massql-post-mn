@@ -4,4 +4,6 @@ pandas
 massql
 pyyaml
 matchms==0.21.1
+celery==5.2.2
+redis
 git+https://github.com/Wang-Bioinformatics-Lab/GNPSDataPackage.git
