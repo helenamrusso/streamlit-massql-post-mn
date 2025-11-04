@@ -158,9 +158,9 @@ def cache_run_analysis(task_id, custom_queries):
     return run_analysis(task_id, custom_queries)
 
 
-def retrieve_cache(trigger: bool, task_id: str, custom_queries: dict):
+def run_analysis_wrapper(task_id: str, custom_queries: dict):
     """Retrieve cached results or run fresh analysis."""
-    if trigger:
+    if task_id == EXAMPLE_TASK_ID:
         print('Triggering cache run - retrieve results from cache')
         return cache_run_analysis(task_id, custom_queries)
     else:
@@ -211,8 +211,7 @@ with st.sidebar:
         task_id = st.text_input(
             "Enter GNPS2 Task ID",
             placeholder="Enter a GNPS2 task ID",
-            value=EXAMPLE_TASK_ID,
-            disabled=True,
+            value=EXAMPLE_TASK_ID
         )
         st.info(EXAMPLE_DESCRIPTION)
     else:
@@ -227,7 +226,6 @@ with st.sidebar:
         f"Select queries ([add new query]({link}))",
         list(flattened_queries.keys()),
         default=['Bile acids (stage 1) queries'] if load_example else None,
-        disabled=load_example,
     )
 
     # Combine selected queries
@@ -252,7 +250,6 @@ with st.sidebar:
                 num_rows="dynamic",
                 width='content',
                 height=300,
-                disabled=load_example,
             )
 
 
@@ -307,12 +304,8 @@ if not st.session_state.results_ready:
         elif not custom_queries:
             st.error("Please select at least one query in the sidebar.")
         else:
-            if load_example:
-                trigger = True
-            else:
-                trigger = False
             # Call warpper to retrieve cached results or run fresh analysis
-            results = retrieve_cache(trigger, task_id, custom_queries)
+            results = run_analysis_wrapper(task_id, custom_queries)
 
             # Store results in session state
             st.session_state.analysis_results = results
