@@ -192,7 +192,10 @@ body = urllib.parse.quote(email_template, safe="")
 link = f"mailto:hmannochiorusso@health.ucsd.edu?subject={subject}&body={body}"
 
 # Predefined example task ID
-EXAMPLE_TASK_ID = "4e5f76ebc4c6481aba4461356f20bc35"
+EXAMPLE_TASK_ID = "fa064fe728814f439a1cd3b72deffcd0"
+EXAMPLE_DESCRIPTION = f"""- HNRC cohort samples of 10 cognitively impaired, 10 non impaired pacients, all from the HIV+ group
+- **Executed Queries**: Bile acids (stage 1) queries
+- [Go to FBMN job](https://gnps2.org/status?task={EXAMPLE_TASK_ID})"""
 
 # Sidebar Configuration
 with st.sidebar:
@@ -209,7 +212,9 @@ with st.sidebar:
             "Enter GNPS2 Task ID",
             placeholder="Enter a GNPS2 task ID",
             value=EXAMPLE_TASK_ID,
+            disabled=True,
         )
+        st.info(EXAMPLE_DESCRIPTION)
     else:
         task_id = st.text_input(
             "Enter GNPS2 Task ID",
@@ -221,6 +226,8 @@ with st.sidebar:
     defined_query_modes = st.multiselect(
         f"Select queries ([add new query]({link}))",
         list(flattened_queries.keys()),
+        default=['Bile acids (stage 1) queries'] if load_example else None,
+        disabled=load_example,
     )
 
     # Combine selected queries
@@ -244,7 +251,8 @@ with st.sidebar:
                 editable_df,
                 num_rows="dynamic",
                 width='content',
-                height=300
+                height=300,
+                disabled=load_example,
             )
 
 
