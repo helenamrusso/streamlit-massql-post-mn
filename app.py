@@ -67,74 +67,67 @@ with st.sidebar:
     st.title("🔧 Analysis Configuration")
 
     # Load example checkbox
-    if not (load_example := st.checkbox("📋 Load Example Task", help="Load a predefined example task ID")):
-        load_precomputed_demo = st.checkbox("📂 Load Precomputed Data", help="Load precomputed demo data for demonstration")
-    else:
-        load_precomputed_demo = False
+    load_example = st.checkbox("📋 Load Example", help="Load a predefined example task ID")
 
     query_params = st.query_params
-    if not load_precomputed_demo:
-        # Input task ID with example functionality
-        if load_example:
-            task_id = st.text_input(
-                "Enter GNPS2 Task ID",
-                placeholder="Enter a GNPS2 task ID",
-                value=EXAMPLE_TASK_ID,
-            )
-        else:
-            task_id = st.text_input(
-                "Enter GNPS2 Task ID",
-                placeholder="Enter a GNPS2 task ID",
-                value=query_params.get("task_id", ""),
-            ).strip()
 
-        # Multiselect to choose one or more queries or groups
-        defined_query_modes = st.multiselect(
-            f"Select queries ([add new query]({link}))",
-            list(flattened_queries.keys()),
+    # Input task ID with example functionality
+    if load_example:
+        task_id = st.text_input(
+            "Enter GNPS2 Task ID",
+            placeholder="Enter a GNPS2 task ID",
+            value=EXAMPLE_TASK_ID,
+        )
+    else:
+        task_id = st.text_input(
+            "Enter GNPS2 Task ID",
+            placeholder="Enter a GNPS2 task ID",
+            value=query_params.get("task_id", ""),
+        ).strip()
+
+    # Multiselect to choose one or more queries or groups
+    defined_query_modes = st.multiselect(
+        f"Select queries ([add new query]({link}))",
+        list(flattened_queries.keys()),
+    )
+
+    # Combine selected queries
+    selected_query_dict = {}
+    for mode in defined_query_modes:
+        selected_query_dict.update(flattened_queries[mode])
+
+    # Show query editor in sidebar if queries are selected
+    custom_queries = {}
+    run_button = False
+
+    if selected_query_dict:
+        st.markdown("### Query Editor")
+        # Editable table for selected queries
+        editable_df = pd.DataFrame(
+            [{"name": name, "query": query} for name, query in selected_query_dict.items()]
         )
 
-        # Combine selected queries
-        selected_query_dict = {}
-        for mode in defined_query_modes:
-            selected_query_dict.update(flattened_queries[mode])
-
-        # Show query editor in sidebar if queries are selected
-        custom_queries = {}
-        run_button = False
-
-        if selected_query_dict:
-            st.markdown("### Query Editor")
-            # Editable table for selected queries
-            editable_df = pd.DataFrame(
-                [{"name": name, "query": query} for name, query in selected_query_dict.items()]
+        with st.expander("Edit Queries", expanded=True):
+            edited_df = st.data_editor(
+                editable_df,
+                num_rows="dynamic",
+                width='content',
+                height=300
             )
 
-            with st.expander("Edit Queries", expanded=True):
-                edited_df = st.data_editor(
-                    editable_df,
-                    num_rows="dynamic",
-                    width='content',
-                    height=300
-                )
+
+        # Update custom queries
+        def get_custom_queries(df):
+            return {
+                row["name"]: row["query"]
+                for _, row in df.iterrows()
+                if row["name"] and row["query"]
+            }
 
 
-            # Update custom queries
-            def get_custom_queries(df):
-                return {
-                    row["name"]: row["query"]
-                    for _, row in df.iterrows()
-                    if row["name"] and row["query"]
-                }
+        custom_queries = get_custom_queries(edited_df)
 
-
-            custom_queries = get_custom_queries(edited_df)
-    else:
-        st.info("- HNRC cohort samples of 10 cognitively impaired, 10 non impaired pacients, all from the HIV+ group\n" \
-                "- **Executed Queries**: Bile acids (stage 1) queries\n" \
-                "- [Go to FBMN job](https://gnps2.org/status?task=fa064fe728814f439a1cd3b72deffcd0)")
-        
-    run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", width='content')
+        run_button = st.button("Run Analysis", icon=":material/play_arrow:",type="primary", width='content')
 
     # Reset results button
     if st.session_state.results_ready:
@@ -167,11 +160,6 @@ if not st.session_state.results_ready:
     if not run_button:
         # Show welcome page
         welcome_page()
-    elif load_precomputed_demo:
-        # Load precomputed demo data
-        st.session_state.analysis_results = pd.read_pickle("demo_data/demo_massql_post_mn.pkl")
-        st.session_state.results_ready = True
-        st.rerun()
     else:
         st.title("🔬 Post Molecular Networking MassQL")
         # Run analysis was clicked
@@ -283,8 +271,6 @@ if not st.session_state.results_ready:
                     'task_id': task_id
                 }
                 st.session_state.results_ready = True
-                # #save results to a pickle for faster reload during demo
-                # pd.to_pickle(st.session_state.analysis_results, "demo_data/demo_massql_post_mn.pkl")
 
             st.success("Analysis complete!", icon="✅")
             st.rerun()
