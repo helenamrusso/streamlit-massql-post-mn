@@ -35,6 +35,138 @@ citations = {
     "N-acyl lipids queries": """Mannochio-Russo, H., Charron-Lamoureux, V., van Faassen, M., et al. (2025).  The microbiome diversifies N-acyl lipid pools – including short-chain fatty acid-derived compounds. Cell, 188(15), 4154–4169.e19. https://doi.org/10.1016/j.cell.2025.05.015""",
 }
 
+def run_analysis(task_id, custom_queries):
+    """
+    Main analysis function that processes GNPS2 task data with MassQL queries.
+    
+    Args:
+        task_id (str): GNPS2 task ID to analyze
+        custom_queries (dict): Dictionary of query names and their MassQL queries
+    
+    Returns:
+        dict: Analysis results containing library_final, full_table, executed_queries, and task_id
+    """
+    st.title("🔬 Post Molecular Networking MassQL")
+    
+    # Initialize a list to store the queries that were run
+    executed_queries = []
+
+    with st.spinner("Downloading files and running queries..."):
+        try:
+            library_matches = gnps2_get_libray_dataframe_wrapper(task_id)
+            cleaned_mgf_path, all_scans, pepmass_list = download_and_filter_mgf(task_id)
+            mgf_path = cleaned_mgf_path
+        except Exception as e:
+            st.error(f"Error downloading files: {str(e)}")
+            st.stop()
+
+    with st.spinner("Running MassQL queries... This may take a while, please be patient!"):
+        all_query_results_df = []
+        container = st.empty()
+        for query_name, input_query in custom_queries.items():
+            with container:
+                st.write(f"Running query: {query_name}")
+                executed_queries.append(f"{query_name}: {input_query}")
+                try:
+                    results_df = msql_engine.process_query(input_query, mgf_path)
+                except KeyError:
+                    results_df = pd.DataFrame()
+
+            if len(results_df) == 0:
+                all_query_results_df.append({"query": query_name, "scan_list": "NA"})
+            else:
+                passed_scan_ls = results_df["scan"].values.tolist()
+                passed_scan_ls = [int(x) for x in passed_scan_ls]
+                all_query_results_df.append({"query": query_name, "scan_list": passed_scan_ls})
+
+        all_query_results_df = pd.DataFrame(all_query_results_df)
+        all_query_results_df["scan_list"] = all_query_results_df["scan_list"].replace("NA", "[]")
+        all_query_results_df["scan_list"] = all_query_results_df["scan_list"].apply(
+            lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+        all_query_results_df = all_query_results_df.explode("scan_list")
+        all_query_results_df = all_query_results_df.rename(
+            columns={"scan_list": "#Scan#", "query": "query_validation"})
+
+    with st.spinner("Merging and displaying results..."):
+        all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].astype(str)
+        library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
+
+        library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
+        fallback_label = "Did not pass any selected query"
+        library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
+        create_mirrorplot_link(library_final, task_id)
+
+        column_order = ["mirror_link", "query_validation", "Compound_Name"]
+        library_final = library_final[
+            column_order + [col for col in library_final.columns if
+                     col not in column_order]]
+
+        library_final = library_final.groupby("#Scan#", as_index=False).agg(
+            {
+                "query_validation": lambda x: ", ".join(set(x)),
+                **{
+                    col: "first"
+                    for col in library_final.columns
+                    if col not in ["#Scan#", "query_validation"]
+                },
+            }
+        )
+
+        # Create full table
+        all_scans_df = pd.DataFrame({'#Scan#': all_scans})
+        all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
+        all_scans_df['pepmass'] = pepmass_list
+
+        full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
+        full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
+        full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
+        create_mirrorplot_link(full_table, task_id)
+
+        # Allow multiple queries per scan in the full table
+        col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']
+        full_table = full_table.groupby("#Scan#", as_index=False).agg(
+            {
+                "query_validation": lambda x: ", ".join(set(x)),
+                **{
+                    col: "first"
+                    for col in full_table.columns
+                    if col not in col_order
+                },
+            }
+        )
+
+        # Clean up temporary files
+        feather_files = glob.glob("temp_mgf/*.feather")
+        for file in feather_files:
+            try:
+                os.remove(file)
+            except Exception as e:
+                st.warning(f"Could not delete {file}: {e}")
+
+    st.success("Analysis complete!", icon="✅")
+    
+    return {
+        'library_final': library_final,
+        'full_table': full_table,
+        'executed_queries': executed_queries,
+        'task_id': task_id
+    }
+
+
+@st.cache_data
+def cache_run_analysis(task_id, custom_queries):
+    return run_analysis(task_id, custom_queries)
+
+
+def run_analysis_wrapper(task_id: str, custom_queries: dict):
+    """Retrieve cached results or run fresh analysis."""
+    if task_id == EXAMPLE_TASK_ID:
+        print('Triggering cache run - retrieve results from cache')
+        return cache_run_analysis(task_id, custom_queries)
+    else:
+        return run_analysis(task_id, custom_queries)
+    
+
 # Initialize session state for results
 if 'results_ready' not in st.session_state:
     st.session_state.results_ready = False
@@ -60,7 +192,10 @@ body = urllib.parse.quote(email_template, safe="")
 link = f"mailto:hmannochiorusso@health.ucsd.edu?subject={subject}&body={body}"
 
 # Predefined example task ID
-EXAMPLE_TASK_ID = "4e5f76ebc4c6481aba4461356f20bc35"
+EXAMPLE_TASK_ID = "fa064fe728814f439a1cd3b72deffcd0"
+EXAMPLE_DESCRIPTION = f"""- HNRC cohort samples of 10 cognitively impaired, 10 non impaired pacients, all from the HIV+ group
+- **Executed Queries**: Bile acids (stage 1) queries
+- [Go to FBMN job](https://gnps2.org/status?task={EXAMPLE_TASK_ID})"""
 
 # Sidebar Configuration
 with st.sidebar:
@@ -76,8 +211,9 @@ with st.sidebar:
         task_id = st.text_input(
             "Enter GNPS2 Task ID",
             placeholder="Enter a GNPS2 task ID",
-            value=EXAMPLE_TASK_ID,
+            value=EXAMPLE_TASK_ID
         )
+        st.info(EXAMPLE_DESCRIPTION)
     else:
         task_id = st.text_input(
             "Enter GNPS2 Task ID",
@@ -89,6 +225,7 @@ with st.sidebar:
     defined_query_modes = st.multiselect(
         f"Select queries ([add new query]({link}))",
         list(flattened_queries.keys()),
+        default=['Bile acids (stage 1) queries'] if load_example else None,
     )
 
     # Combine selected queries
@@ -112,7 +249,7 @@ with st.sidebar:
                 editable_df,
                 num_rows="dynamic",
                 width='content',
-                height=300
+                height=300,
             )
 
 
@@ -134,7 +271,7 @@ with st.sidebar:
         if st.button("New Analysis", icon=":material/replay:", width='content'):
             st.session_state.results_ready = False
             st.session_state.analysis_results = None
-            st.cache_data.clear()
+            st.session_state.clear()
             st.rerun()
 
     st.subheader("Contributors")
@@ -161,118 +298,18 @@ if not st.session_state.results_ready:
         # Show welcome page
         welcome_page()
     else:
-        st.title("🔬 Post Molecular Networking MassQL")
         # Run analysis was clicked
         if not task_id:
             st.error("Please enter a GNPS2 Task ID in the sidebar.")
         elif not custom_queries:
             st.error("Please select at least one query in the sidebar.")
         else:
-            # Initialize a list to store the queries that were run
-            executed_queries = []
+            # Call warpper to retrieve cached results or run fresh analysis
+            results = run_analysis_wrapper(task_id, custom_queries)
 
-            with st.spinner("Downloading files and running queries..."):
-                try:
-                    library_matches = gnps2_get_libray_dataframe_wrapper(task_id)
-                    cleaned_mgf_path, all_scans, pepmass_list = download_and_filter_mgf(task_id)
-                    mgf_path = cleaned_mgf_path
-                except Exception as e:
-                    st.error(f"Error downloading files: {str(e)}")
-                    st.stop()
-
-            with st.spinner("Running MassQL queries... This may take a while, please be patient!"):
-                all_query_results_df = []
-                container = st.empty()
-                for query_name, input_query in custom_queries.items():
-                    with container:
-                        st.write(f"Running query: {query_name}")
-                        executed_queries.append(f"{query_name}: {input_query}")
-                        try:
-                            results_df = msql_engine.process_query(input_query, mgf_path)
-                        except KeyError:
-                            results_df = pd.DataFrame()
-
-                    if len(results_df) == 0:
-                        all_query_results_df.append({"query": query_name, "scan_list": "NA"})
-                    else:
-                        passed_scan_ls = results_df["scan"].values.tolist()
-                        passed_scan_ls = [int(x) for x in passed_scan_ls]
-                        all_query_results_df.append({"query": query_name, "scan_list": passed_scan_ls})
-
-                all_query_results_df = pd.DataFrame(all_query_results_df)
-                all_query_results_df["scan_list"] = all_query_results_df["scan_list"].replace("NA", "[]")
-                all_query_results_df["scan_list"] = all_query_results_df["scan_list"].apply(
-                    lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
-                all_query_results_df = all_query_results_df.explode("scan_list")
-                all_query_results_df = all_query_results_df.rename(
-                    columns={"scan_list": "#Scan#", "query": "query_validation"})
-
-            with st.spinner("Merging and displaying results..."):
-                all_query_results_df["#Scan#"] = all_query_results_df["#Scan#"].astype(str)
-                library_matches["#Scan#"] = library_matches["#Scan#"].astype(str)
-
-                library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
-                fallback_label = "Did not pass any selected query"
-                library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
-                create_mirrorplot_link(library_final, task_id)
-
-                column_order = ["mirror_link", "query_validation", "Compound_Name"]
-                library_final = library_final[
-                    column_order + [col for col in library_final.columns if
-                             col not in column_order]]
-
-                library_final = library_final.groupby("#Scan#", as_index=False).agg(
-                    {
-                        "query_validation": lambda x: ", ".join(set(x)),
-                        **{
-                            col: "first"
-                            for col in library_final.columns
-                            if col not in ["#Scan#", "query_validation"]
-                        },
-                    }
-                )
-
-                # Create full table
-                all_scans_df = pd.DataFrame({'#Scan#': all_scans})
-                all_scans_df['#Scan#'] = all_scans_df['#Scan#'].astype(str)
-                all_scans_df['pepmass'] = pepmass_list
-
-                full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
-                full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
-                full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
-                create_mirrorplot_link(full_table, task_id)
-
-                # Allow multiple queries per scan in the full table
-                col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']
-                full_table = full_table.groupby("#Scan#", as_index=False).agg(
-                    {
-                        "query_validation": lambda x: ", ".join(set(x)),
-                        **{
-                            col: "first"
-                            for col in full_table.columns
-                            if col not in col_order
-                        },
-                    }
-                )
-
-                # Clean up temporary files
-                feather_files = glob.glob("temp_mgf/*.feather")
-                for file in feather_files:
-                    try:
-                        os.remove(file)
-                    except Exception as e:
-                        st.warning(f"Could not delete {file}: {e}")
-
-                # Store results in session state
-                st.session_state.analysis_results = {
-                    'library_final': library_final,
-                    'full_table': full_table,
-                    'executed_queries': executed_queries,
-                    'task_id': task_id
-                }
-                st.session_state.results_ready = True
-
-            st.success("Analysis complete!", icon="✅")
+            # Store results in session state
+            st.session_state.analysis_results = results
+            st.session_state.results_ready = True
             st.rerun()
 
 else:
