@@ -192,7 +192,7 @@ body = urllib.parse.quote(email_template, safe="")
 link = f"mailto:hmannochiorusso@health.ucsd.edu?subject={subject}&body={body}"
 
 # Predefined example task ID
-EXAMPLE_TASK_ID = "b5b666da713b48e7ab3cb1855fdd2b89"
+EXAMPLE_TASK_ID = "a322acf7936c4f91a41fd2f267d9b613" # FBMN_CMMC_Workshop_including_druganalog
 EXAMPLE_DESCRIPTION = f"""- HNRC cohort samples of 10 cognitively impaired, 10 non impaired pacients, all from the HIV+ group
 - **Executed Queries**: Bile acids (stage 1) queries
 - [Go to FBMN job](https://gnps2.org/status?task={EXAMPLE_TASK_ID})"""
