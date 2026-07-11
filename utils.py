@@ -3,7 +3,7 @@ import urllib.parse
 from io import StringIO
 
 import pandas as pd
-from gnpsdata import taskresult, workflow_fbmn, taskinfo
+from gnpsdata import taskresult, taskinfo
 
 
 def get_git_short_rev():
@@ -16,19 +16,66 @@ def get_git_short_rev():
         return ".git/ not found"
 
 
-def gnps2_download_resultfile_wrapper(mgf_file_path, task_id):
-    return taskresult.download_gnps2_task_resultfile(task_id, "nf_output/clustering/specs_ms.mgf", mgf_file_path)
+# Result-file locations per supported workflow. The Everything Bagel paths are for
+# mode=fbmn (see get_workflow_paths); other EB modes lay files out differently.
+WORKFLOW_PATHS = {
+    "feature_based_molecular_networking_workflow": {
+        "mgf": "nf_output/clustering/spectra_reformatted.mgf",
+        "library": "nf_output/library/merged_results_with_gnps.tsv",
+        "usi_mgf": "nf_output/clustering/spectra_reformatted.mgf",
+    },
+    "classical_networking_workflow": {
+        "mgf": "nf_output/clustering/specs_ms.mgf",
+        "library": "nf_output/library/merged_results_with_gnps.tsv",
+        "usi_mgf": "nf_output/clustering/spectra_reformatted.mgf",
+    },
+    "everything_bagel_workflow": {
+        "mgf": "nf_output/feature_finding/aligned_features_filled.mgf",
+        "library": "nf_output/feature_library_search/merged_feature_library_search_results.tsv",
+        "usi_mgf": "nf_output/feature_finding/aligned_features_filled.mgf",
+    },
+}
+
+# Everything Bagel's library-search TSV names these columns differently; map them onto
+# the schema the rest of the app expects (#Scan# is the join key, see run_analysis).
+EB_LIBRARY_COLUMN_MAP = {
+    "query_scan": "#Scan#",
+    "NAME": "Compound_Name",
+    "SPECTRUMID": "SpectrumID",
+}
 
 
-def fbmn_download_mgf_wrapper(mgf_file_path, task_id):
-    return workflow_fbmn.download_mgf(task_id, mgf_file_path)
+def get_workflow_paths(task_id: str) -> dict:
+    """Resolve result-file locations for a task's workflow.
+
+    Raises ValueError for unsupported workflows, and for Everything Bagel runs that
+    are not in fbmn mode (their output layout differs from what this app handles).
+    """
+    task_info = taskinfo.get_task_information(task_id)
+    workflowname = task_info.get("workflowname")
+
+    if workflowname not in WORKFLOW_PATHS:
+        raise ValueError(f"Unsupported workflow: {workflowname}. Cannot process this task.")
+
+    if workflowname == "everything_bagel_workflow":
+        params = task_info.get("submission_parameters") or {}
+        mode = params.get("mode") if isinstance(params, dict) else None
+        if mode != "fbmn":
+            raise ValueError(
+                f"Unsupported Everything Bagel mode: {mode!r}. Only 'fbmn' mode is supported."
+            )
+
+    return {"workflowname": workflowname, **WORKFLOW_PATHS[workflowname]}
 
 
-def gnps2_get_libray_dataframe_wrapper(task_id):
-    return taskresult.get_gnps2_task_resultfile_dataframe(task_id, 'nf_output/library/merged_results_with_gnps.tsv')
+def gnps2_get_libray_dataframe_wrapper(task_id, paths):
+    df = taskresult.get_gnps2_task_resultfile_dataframe(task_id, paths["library"])
+    if paths["workflowname"] == "everything_bagel_workflow":
+        df = df.rename(columns=EB_LIBRARY_COLUMN_MAP)
+    return df
 
 
-def download_and_filter_mgf(task_id: str) -> (str, list, list):
+def download_and_filter_mgf(task_id: str, paths: dict) -> (str, list, list):
     os.makedirs("temp_mgf", exist_ok=True)
     mgf_file_path = f"temp_mgf/{task_id}_mgf_all.mgf"
     cleaned_mgf = f"temp_mgf/{task_id}_mgf_cleaned.mgf"
@@ -45,14 +92,7 @@ def download_and_filter_mgf(task_id: str) -> (str, list, list):
                     pepmass_list.append(line.strip().split("=")[1].split()[0])
         return cleaned_mgf, scan_list, pepmass_list
 
-    task_info = taskinfo.get_task_information(task_id)
-    workflowname = task_info.get('workflowname')
-    if workflowname == 'feature_based_molecular_networking_workflow':
-        fbmn_download_mgf_wrapper(mgf_file_path, task_id)
-    elif workflowname == 'classical_networking_workflow':
-        gnps2_download_resultfile_wrapper(mgf_file_path, task_id)
-    else:
-        raise ValueError(f"Unsupported workflow: {workflowname}. Cannot download MGF.")
+    taskresult.download_gnps2_task_resultfile(task_id, paths["mgf"], mgf_file_path)
 
     scan_list, pepmass_list = [], []
     with open(mgf_file_path, "r") as mgf_file:
@@ -154,12 +194,13 @@ def insert_mgf_info(task: str, input_mgf: str, validation_df: pd.DataFrame) -> S
     return buffer
 
 
-def create_mirrorplot_link(result_df: pd.DataFrame, task_id: str):
+def create_mirrorplot_link(result_df: pd.DataFrame, task_id: str,
+                           usi_mgf: str = "nf_output/clustering/spectra_reformatted.mgf"):
     result_df['mirror_link'] = result_df.apply(
         lambda x:
             "https://metabolomics-usi.gnps2.org/dashinterface/?usi1="
             + urllib.parse.quote(
-                f"mzspec:GNPS2:TASK-{task_id}-nf_output/clustering/spectra_reformatted.mgf:scan:{x['#Scan#']}"
+                f"mzspec:GNPS2:TASK-{task_id}-{usi_mgf}:scan:{x['#Scan#']}"
             )
             + "&usi2="
             + urllib.parse.quote(
@@ -167,7 +208,7 @@ def create_mirrorplot_link(result_df: pd.DataFrame, task_id: str):
             ) if pd.notna(x['SpectrumID']) else
             "https://metabolomics-usi.gnps2.org/dashinterface/?usi1="
             + urllib.parse.quote(
-                f"mzspec:GNPS2:TASK-{task_id}-nf_output/clustering/spectra_reformatted.mgf:scan:{x['#Scan#']}"
+                f"mzspec:GNPS2:TASK-{task_id}-{usi_mgf}:scan:{x['#Scan#']}"
             ),
         axis=1
     )

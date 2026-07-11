@@ -11,7 +11,8 @@ from streamlit.components.v1 import html
 
 from queries import *
 from utils import gnps2_get_libray_dataframe_wrapper, \
-    get_git_short_rev, download_and_filter_mgf, insert_mgf_info, create_mirrorplot_link
+    get_git_short_rev, download_and_filter_mgf, insert_mgf_info, create_mirrorplot_link, \
+    get_workflow_paths
 from welcome import welcome_page
 
 page_title = "Post MN MassQL"
@@ -53,8 +54,9 @@ def run_analysis(task_id, custom_queries):
 
     with st.spinner("Downloading files and running queries..."):
         try:
-            library_matches = gnps2_get_libray_dataframe_wrapper(task_id)
-            cleaned_mgf_path, all_scans, pepmass_list = download_and_filter_mgf(task_id)
+            paths = get_workflow_paths(task_id)
+            library_matches = gnps2_get_libray_dataframe_wrapper(task_id, paths)
+            cleaned_mgf_path, all_scans, pepmass_list = download_and_filter_mgf(task_id, paths)
             mgf_path = cleaned_mgf_path
         except Exception as e:
             st.error(f"Error downloading files: {str(e)}")
@@ -94,7 +96,7 @@ def run_analysis(task_id, custom_queries):
         library_final = pd.merge(library_matches, all_query_results_df, on="#Scan#", how="left")
         fallback_label = "Did not pass any selected query"
         library_final["query_validation"] = library_final["query_validation"].fillna(fallback_label)
-        create_mirrorplot_link(library_final, task_id)
+        create_mirrorplot_link(library_final, task_id, paths["usi_mgf"])
 
         column_order = ["mirror_link", "query_validation", "Compound_Name"]
         library_final = library_final[
@@ -120,7 +122,7 @@ def run_analysis(task_id, custom_queries):
         full_table = pd.merge(all_scans_df, all_query_results_df, on='#Scan#', how='left')
         full_table = pd.merge(full_table, library_matches, on='#Scan#', how='left')
         full_table['query_validation'] = full_table['query_validation'].fillna(fallback_label)
-        create_mirrorplot_link(full_table, task_id)
+        create_mirrorplot_link(full_table, task_id, paths["usi_mgf"])
 
         # Allow multiple queries per scan in the full table
         col_order = ['#Scan#', 'pepmass', 'mirror_link', 'query_validation', 'Compound_Name']

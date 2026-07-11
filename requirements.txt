@@ -2,6 +2,7 @@ streamlit==1.50
 requests
 pandas
 massql
+pyteomics<5  # 5.0+ requires Python 3.10+; this project/Dockerfile use Python 3.9
 pyyaml
 matchms==0.21.1
 git+https://github.com/Wang-Bioinformatics-Lab/GNPSDataPackage.git
