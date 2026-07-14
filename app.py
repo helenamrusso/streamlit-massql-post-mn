@@ -20,7 +20,7 @@ git_hash = get_git_short_rev()
 repo_link = "https://github.com/helenamrusso/streamlit-massql-post-mn"
 
 # TODO: Bump version
-app_version = "2025-08-12"
+app_version = "2026-07-14"
 
 st.set_page_config(page_title=page_title, page_icon=":flashlight:", layout="wide",
                    menu_items={"About": (f"**App version**: {app_version} | "
