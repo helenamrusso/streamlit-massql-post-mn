@@ -3,6 +3,7 @@ import urllib.parse
 from io import StringIO
 
 import pandas as pd
+import requests
 from gnpsdata import taskresult, taskinfo
 
 
@@ -69,7 +70,24 @@ def get_workflow_paths(task_id: str) -> dict:
 
 
 def gnps2_get_libray_dataframe_wrapper(task_id, paths):
-    df = taskresult.get_gnps2_task_resultfile_dataframe(task_id, paths["library"])
+    # Fetched with requests rather than gnpsdata's get_gnps2_task_resultfile_dataframe:
+    # that one calls pd.read_csv(url), whose Python-urllib User-Agent is blocked by
+    # GNPS2's Cloudflare (HTTP 403, error 1010), and it returns None on any failure.
+    errors = []
+    for server in ["prod", "beta", "de"]:
+        url = taskresult.determine_gnps2_resultfile_url(task_id, paths["library"], gnps2server=server)
+        try:
+            r = requests.get(url, timeout=120)
+            r.raise_for_status()
+            df = pd.read_csv(StringIO(r.text), sep="\t")
+            break
+        except Exception as e:
+            errors.append(f"{server}: {e}")
+    else:
+        raise ValueError(
+            f"Could not load library search results ({paths['library']}) for task {task_id}. "
+            f"Tried: {'; '.join(errors)}"
+        )
     if paths["workflowname"] == "everything_bagel_workflow":
         df = df.rename(columns=EB_LIBRARY_COLUMN_MAP)
     return df
