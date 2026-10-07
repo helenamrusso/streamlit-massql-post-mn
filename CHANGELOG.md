@@ -3,6 +3,14 @@
 All notable changes to the Post Molecular Networking MassQL app are listed here.
 Releases are named by the `app_version` date shown in the app's **About** menu.
 
+## [2026-10-07]
+
+### Added
+- Tasks on the GNPS2 **beta** server (and `de`) can now be analyzed. The app
+  looks the task up on `prod`, `beta` and `de` in turn, then downloads the
+  library results and the MGF from the server that holds it. Before, task
+  lookup and the MGF download only used `prod`, so beta tasks failed.
+
 ## [2026-10-04]
 
 ### Fixed
