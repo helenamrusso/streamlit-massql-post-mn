@@ -4,7 +4,6 @@ from io import StringIO
 
 import pandas as pd
 import requests
-from gnpsdata import taskresult, taskinfo
 
 
 def get_git_short_rev():
@@ -15,6 +14,34 @@ def get_git_short_rev():
         return hash_val[:7]
     except Exception:
         return ".git/ not found"
+
+
+# GNPS2 servers a task can live on, in lookup order. Done here rather than with gnpsdata:
+# its taskinfo.get_task_information and download_gnps2_task_resultfile only query prod.
+GNPS2_SERVERS = {
+    "prod": "https://gnps2.org",
+    "beta": "https://beta.gnps2.org",
+    "de": "https://de.gnps2.org",
+}
+
+
+def get_task_information(task_id: str) -> (str, dict):
+    """Find which GNPS2 server holds the task. Returns (server_name, status_json)."""
+    errors = []
+    for server, base_url in GNPS2_SERVERS.items():
+        try:
+            r = requests.get(f"{base_url}/status.json", params={"task": task_id}, timeout=30)
+            r.raise_for_status()
+            # Servers that don't know the task answer 200 with an HTML page, not JSON
+            return server, r.json()
+        except Exception as e:
+            errors.append(f"{server}: {e}")
+    raise ValueError(f"Task {task_id} was not found on any GNPS2 server. Tried: {'; '.join(errors)}")
+
+
+def gnps2_resultfile_url(task_id: str, result_path: str, server: str) -> str:
+    return (f"{GNPS2_SERVERS[server]}/resultfile?task={task_id}"
+            f"&file={urllib.parse.quote(result_path)}")
 
 
 # Result-file locations per supported workflow. The Everything Bagel paths are for
@@ -52,7 +79,7 @@ def get_workflow_paths(task_id: str) -> dict:
     Raises ValueError for unsupported workflows, and for Everything Bagel runs that
     are not in fbmn mode (their output layout differs from what this app handles).
     """
-    task_info = taskinfo.get_task_information(task_id)
+    server, task_info = get_task_information(task_id)
     workflowname = task_info.get("workflowname")
 
     if workflowname not in WORKFLOW_PATHS:
@@ -66,27 +93,22 @@ def get_workflow_paths(task_id: str) -> dict:
                 f"Unsupported Everything Bagel mode: {mode!r}. Only 'fbmn' mode is supported."
             )
 
-    return {"workflowname": workflowname, **WORKFLOW_PATHS[workflowname]}
+    return {"workflowname": workflowname, "server": server, **WORKFLOW_PATHS[workflowname]}
 
 
 def gnps2_get_libray_dataframe_wrapper(task_id, paths):
     # Fetched with requests rather than gnpsdata's get_gnps2_task_resultfile_dataframe:
     # that one calls pd.read_csv(url), whose Python-urllib User-Agent is blocked by
     # GNPS2's Cloudflare (HTTP 403, error 1010), and it returns None on any failure.
-    errors = []
-    for server in ["prod", "beta", "de"]:
-        url = taskresult.determine_gnps2_resultfile_url(task_id, paths["library"], gnps2server=server)
-        try:
-            r = requests.get(url, timeout=120)
-            r.raise_for_status()
-            df = pd.read_csv(StringIO(r.text), sep="\t")
-            break
-        except Exception as e:
-            errors.append(f"{server}: {e}")
-    else:
+    url = gnps2_resultfile_url(task_id, paths["library"], paths["server"])
+    try:
+        r = requests.get(url, timeout=120)
+        r.raise_for_status()
+        df = pd.read_csv(StringIO(r.text), sep="\t")
+    except Exception as e:
         raise ValueError(
-            f"Could not load library search results ({paths['library']}) for task {task_id}. "
-            f"Tried: {'; '.join(errors)}"
+            f"Could not load library search results ({paths['library']}) for task {task_id} "
+            f"from the GNPS2 {paths['server']} server: {e}"
         )
     if paths["workflowname"] == "everything_bagel_workflow":
         df = df.rename(columns=EB_LIBRARY_COLUMN_MAP)
@@ -110,7 +132,12 @@ def download_and_filter_mgf(task_id: str, paths: dict) -> (str, list, list):
                     pepmass_list.append(line.strip().split("=")[1].split()[0])
         return cleaned_mgf, scan_list, pepmass_list
 
-    taskresult.download_gnps2_task_resultfile(task_id, paths["mgf"], mgf_file_path)
+    url = gnps2_resultfile_url(task_id, paths["mgf"], paths["server"])
+    with requests.get(url, stream=True, timeout=300) as r:
+        r.raise_for_status()
+        with open(mgf_file_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
 
     scan_list, pepmass_list = [], []
     with open(mgf_file_path, "r") as mgf_file:
